@@ -75,23 +75,14 @@ blank values, called `.env.example`, is already included. Copy it and fill it in
 Copy-Item .env.example .env
 ```
 
-Then open `.env` in a text editor and fill in these values. The first two are the
-only ones you truly need right now; the third is optional but worth knowing about:
+Then open `.env` in a text editor and fill in these values. The first one is the
+only one you truly need right now; the second is optional but worth knowing about.
+(You do NOT set a password in `.env` anymore — see step 4 below for how login
+actually works now.)
 
 - **`PROCESSFORGE_DB_PATH`** — this is where ProcessForge stores its data (the tasks,
   estimates, and recommendations it creates) on your computer, as a file. The
   example default (`./kb/processforge.db`) is fine to start with.
-- **`PROCESSFORGE_API_TOKEN`** — this is the password anyone (including you) needs
-  to provide to use ProcessForge. Pick any password-like string of your own — there's
-  no required format, just make it something not easily guessed. **This one matters:
-  if you leave it blank, ProcessForge will refuse every request that actually does
-  anything** (you'll get an error that says you're "not authenticated"). The one
-  exception is a small built-in "are you running?" check (a web address ending in
-  `/health`) that ProcessForge deliberately leaves open with no password required,
-  so you — or an automated monitoring tool — can confirm the program is up without
-  needing a password first. That check doesn't do anything with your data; it just
-  reports "ok." You must still set a real value for `PROCESSFORGE_API_TOKEN` before
-  ProcessForge will do anything useful for you.
 - **`PROCESSFORGE_RATE_LIMIT_PER_MINUTE`** — this limits how many requests any one
   visitor can send in a single minute, so one person (or a runaway script, or
   someone abusing the system) can't overload ProcessForge. You can leave this blank
@@ -122,7 +113,22 @@ everything installed correctly and that nothing is broken:
 If this finishes without errors, your setup is good. If it reports a problem, fix
 that before continuing — don't try to use ProcessForge with a failing check.
 
-### 4. Start ProcessForge
+### 4. Create your own login
+
+Nobody shares one password anymore — each person who uses ProcessForge has their
+own account. Create yours (only needs to be done once per person):
+
+```powershell
+.\.venv\Scripts\python.exe -m auth.users create YOUR_USERNAME
+```
+
+It will ask you to type a password (at least 8 characters) — what you type won't
+show on screen, that's normal for password prompts. Your password is stored
+securely (hashed, never as plain readable text). To see everyone who has an
+account, run `.\.venv\Scripts\python.exe -m auth.users list`. To remove someone's
+account, `.\.venv\Scripts\python.exe -m auth.users delete THEIR_USERNAME`.
+
+### 5. Start ProcessForge
 
 Start the ProcessForge program with:
 
@@ -136,12 +142,35 @@ in that window whenever you want to stop it.
 
 ---
 
+## Logging in
+
+Before you can do anything else, you need to log in and get a **token** — a
+temporary pass that proves who you are. You send your username and password once,
+and get back a token to use for everything else. Each token works for 7 days, then
+you'll need to log in again.
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8000/auth/login -H "Content-Type: application/json" -d "{\"username\": \"YOUR_USERNAME\", \"password\": \"YOUR_PASSWORD\"}"
+```
+
+You'll get back something like `{"token": "a-long-random-string"}`. Copy that
+string — you'll use it in place of `YOUR_TOKEN_HERE` in every example below. If
+you're done for the day and want to make sure that token can't be used by anyone
+else, log out with it:
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+---
+
 ## How to use ProcessForge (running a session)
 
-Once ProcessForge is running (step 4 above), you talk to it by sending it a request.
-The address you send that request to is `/sessions`. Here's a copy-pasteable example
-using `curl.exe` (a simple command-line tool for sending requests), which you can run
-from a *second* terminal window while ProcessForge is still running in the first.
+Once ProcessForge is running (step 5 above) and you're logged in (previous
+section), you talk to it by sending it a request. The address you send that
+request to is `/sessions`. Here's a copy-pasteable example using `curl.exe` (a
+simple command-line tool for sending requests), which you can run from a *second*
+terminal window while ProcessForge is still running in the first.
 
 To avoid quoting problems that can happen when different versions of PowerShell
 handle quote marks differently, first save the request's contents to a small file:
@@ -164,7 +193,7 @@ Then send it:
 
 ```powershell
 curl.exe -X POST http://127.0.0.1:8000/sessions `
-  -H "Authorization: Bearer YOUR_PASSWORD_HERE" `
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" `
   -H "Content-Type: application/json" `
   -d "@session.json"
 ```
@@ -176,9 +205,9 @@ Here's what each part means:
   and `answers` values to describe your own task before saving.
 - **`http://127.0.0.1:8000/sessions`** — the address of the ProcessForge program
   running on your own computer.
-- **`Authorization: Bearer YOUR_PASSWORD_HERE`** — replace `YOUR_PASSWORD_HERE` with
-  the exact value you put in `PROCESSFORGE_API_TOKEN` in your `.env` file. This is
-  required — without it, ProcessForge rejects your request.
+- **`Authorization: Bearer YOUR_TOKEN_HERE`** — replace `YOUR_TOKEN_HERE` with the
+  token you got back from logging in (see "Logging in" above). This is required —
+  without a valid, non-expired token, ProcessForge rejects your request.
 - **`-d "@session.json"`** — tells `curl.exe` to send the contents of the file you
   just saved as the request.
 - **`business_name`** — the name of the business this task belongs to.
@@ -209,21 +238,21 @@ ProcessForge replies with:
 
 Every recommendation starts out as a **draft** — nothing happens until a person
 approves it. Once you have a recommendation's ID (from the reply above), here's how
-to move it forward. All of these need the same password header as before
-(`Authorization: Bearer YOUR_PASSWORD_HERE`) and a `tenant` value telling
+to move it forward. All of these need the same login token header as before
+(`Authorization: Bearer YOUR_TOKEN_HERE`) and a `tenant` value telling
 ProcessForge which client/company this is for.
 
 1. **Look up a recommendation** — check its current summary and approval status:
 
    ```powershell
-   curl.exe -s "http://127.0.0.1:8000/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   curl.exe -s "http://127.0.0.1:8000/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
 2. **Approve it** — this is the "yes, go ahead" step. Nothing is built yet — this
    just marks the recommendation as approved:
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/approve?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/approve?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
 3. **Build it** — this actually creates the automation (a written plan of what it
@@ -234,7 +263,7 @@ ProcessForge which client/company this is for.
    you so, instead of building something nobody signed off on:
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/build?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/build?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
    You'll get back an **automation** — its plan, what it could affect ("blast
@@ -248,7 +277,7 @@ ProcessForge which client/company this is for.
    anything):
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
+   curl.exe -s -X POST "http://127.0.0.1:8000/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
    ```
 
 **A note on privacy between clients:** if you try to look up, approve, or build
@@ -268,9 +297,6 @@ These are known, planned improvements — not promises of a specific date:
   you still type everything in one go and get one result back. A future version will
   actually ask you follow-up questions across multiple turns, instead of processing
   everything you type at once.
-- **A real login system.** Right now everyone who uses a given ProcessForge setup
-  shares one single password. A future version will give the people operating it
-  (you and your team) real individual logins instead.
 - **A record of who approved what, and when.** Right now approvals happen but
   aren't written down anywhere separately for later review. A future version will
   keep a permanent record of every approval decision.
