@@ -205,6 +205,61 @@ ProcessForge replies with:
 
 ---
 
+## Approving a recommendation and building the automation
+
+Every recommendation starts out as a **draft** — nothing happens until a person
+approves it. Once you have a recommendation's ID (from the reply above), here's how
+to move it forward. All of these need the same password header as before
+(`Authorization: Bearer YOUR_PASSWORD_HERE`) and a `tenant` value telling
+ProcessForge which client/company this is for.
+
+1. **Look up a recommendation** — check its current summary and approval status:
+
+   ```powershell
+   curl.exe -s "http://127.0.0.1:8000/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   ```
+
+2. **Approve it** — this is the "yes, go ahead" step. Nothing is built yet — this
+   just marks the recommendation as approved:
+
+   ```powershell
+   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/approve?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   ```
+
+3. **Build it** — this actually creates the automation (a written plan of what it
+   would do, what it could affect if something went wrong, and how to undo it — it
+   does NOT run anything against your real systems, it only produces a plan for a
+   person to look at). This step only works AFTER you've approved the
+   recommendation — if you try it before approving, ProcessForge refuses and tells
+   you so, instead of building something nobody signed off on:
+
+   ```powershell
+   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/build?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE"
+   ```
+
+   You'll get back an **automation** — its plan, what it could affect ("blast
+   radius"), and how to undo it ("rollback"). Like a recommendation, an automation
+   also starts out needing its own separate approval before it's ever actually
+   used — building it is not the same as running it.
+
+4. **Give feedback and get a revised version** — if the automation isn't quite
+   right, describe what should change, and ProcessForge produces a new, revised
+   version (the original is kept; this creates a new one, it doesn't overwrite
+   anything):
+
+   ```powershell
+   curl.exe -s -X POST "http://127.0.0.1:8000/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_PASSWORD_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
+   ```
+
+**A note on privacy between clients:** if you try to look up, approve, or build
+something using the wrong `tenant` value (e.g. a typo, or accidentally mixing up
+two clients), ProcessForge treats it exactly the same as if that ID didn't exist at
+all — it won't tell you "wrong client," just "not found." This is deliberate: it
+means one client's data can never accidentally leak into what another client can
+see, not even a hint that it exists.
+
+---
+
 ## What's coming next
 
 These are known, planned improvements — not promises of a specific date:
@@ -214,8 +269,13 @@ These are known, planned improvements — not promises of a specific date:
   actually ask you follow-up questions across multiple turns, instead of processing
   everything you type at once.
 - **A real login system.** Right now everyone who uses a given ProcessForge setup
-  shares one single password. A future version will give each person or client
-  their own separate login.
+  shares one single password. A future version will give the people operating it
+  (you and your team) real individual logins instead.
+- **A record of who approved what, and when.** Right now approvals happen but
+  aren't written down anywhere separately for later review. A future version will
+  keep a permanent record of every approval decision.
+- **A way to fully delete a client's data on request.** Not built yet.
+- **An actual website**, instead of typing commands into a terminal window.
 
 ---
 

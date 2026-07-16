@@ -11,7 +11,17 @@ Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` 
 `run-tests.ps1` (pip-audit + full suite) are green.
 
 A minimal API layer also now exists beyond §6's original scope: `api/main.py`
-(`GET /health`, `POST /sessions`), with an explicit **stopgap auth model** —
+(`GET /health`, `POST /sessions`, `GET /recommendations/{id}`, `POST
+/recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
+/automations/{id}/feedback`). All 6 pipeline stages are now reachable through
+the live API — `build` calls `stages/builder.py` (returns `409` via its
+`PermissionError` if the recommendation isn't `approved` yet, never a raw
+500), `feedback` calls `stages/qa.py` and persists the resulting revision as
+a new record. Every endpoint enforces tenant isolation at the DB level
+(`WHERE id = ? AND tenant = ?` in `kb/repository.py` — a wrong-tenant request
+gets an identical 404 to an unknown id, never a 403, so existence can't be
+enumerated). None of the new endpoints call `complete()` — builder/qa stay
+deterministic. With an explicit **stopgap auth model** —
 single shared bearer token via `PROCESSFORGE_API_TOKEN`, single-tenant-per-
 deployment, compared with `hmac.compare_digest`. `db_path` is always resolved
 server-side from `PROCESSFORGE_DB_PATH`, never accepted from the client
@@ -63,6 +73,20 @@ server/container deployment needs no change. All keyring interactions in
 `tests/test_llm_client.py`/`tests/test_llm_secrets_cli.py` are mocked — no test
 ever touches the real Credential Manager.
 
+**`tests/conftest.py` exists for a real reason — read this before touching
+it.** Once a real LLM provider is configured on a machine (env var + a real
+keyring-stored key), `api/main.py`'s module-level `load_dotenv()` leaks that
+config into the WHOLE pytest process the first time anything imports
+`api.main` — not just the test file that imported it. Every test that then
+calls `pipeline.run_session()` for real (`test_skeleton.py`, `test_pipeline.py`,
+`test_api.py`, etc.) would silently make real, billable LLM calls. This bit
+us for real during this build. The fix: an autouse, function-scoped fixture
+in `tests/conftest.py` that `monkeypatch.delenv("PROCESSFORGE_LLM_PROVIDER")`
+before every single test in `tests/` (including `tests/seams/`). Verified
+closed by proof, not inference — a full run with `requests.post` rigged to
+raise on any call passed with zero failures. **Do not remove or narrow this
+fixture without re-proving zero network egress the same way.**
+
 Remaining before this is a usable product (none of these are council loops):
 - **Loop 2, the real remaining part** (adaptive follow-up QUESTIONS, a genuine
   back-and-forth conversation, pause/resume across multiple turns) — a single
@@ -71,8 +95,16 @@ Remaining before this is a usable product (none of these are council loops):
   single-shot (`POST /sessions` takes all answers at once); a real multi-turn
   flow needs new session state handling and API surface. Explicitly
   hand-build/judged-by-eye per spec §6, not a council ACCEPT gate.
-- **Real multi-tenant auth** — replace the API layer's bearer-token stopgap
-  (see above).
+- **Real operator auth** — replace the API layer's shared-bearer-token stopgap
+  with a real login (Brian's team are the only operators — not self-serve
+  multi-tenant client accounts; they select `tenant` per request, same as
+  today). This is the next piece of work.
+- **Audit log** for approval-state changes, and a **delete-by-business**
+  endpoint (both required by the original spec §9, never built).
+- **Frontend** — plain HTML/JS served by FastAPI (Jinja2 + vanilla JS,
+  decided over a React/NEXUS-style split frontend to avoid a second
+  toolchain for what's an internal operator tool) — once the backend above
+  is complete.
 
 ## Build engine
 
