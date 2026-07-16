@@ -38,10 +38,22 @@ provider + key. `complete()` is NOT wired into any stage yet — every stage
 (`interviewer`/`mapper`/`analyzer`/`architect`/`builder`/`qa`) remains
 deliberately deterministic and never calls it.
 
+`PROCESSFORGE_LLM_API_KEY` now has a secure local fallback: if the env var is
+unset, `complete()` (for `anthropic`/`openrouter` only — `ollama` needs no key)
+checks the Windows Credential Manager via the `keyring` package before failing.
+Manage stored keys with `python -m llm.secrets set|status|delete <provider>`
+(`set` prompts via `getpass`, never accepts the key as a CLI arg; `status`
+reports presence only, never the value). Env var still wins if set, so a future
+server/container deployment needs no change. All keyring interactions in
+`tests/test_llm_client.py`/`tests/test_llm_secrets_cli.py` are mocked — no test
+ever touches the real Credential Manager.
+
 Remaining before this is a usable product (none of these are council loops):
-- **Choose + configure a provider** — set `PROCESSFORGE_LLM_PROVIDER` and
-  `PROCESSFORGE_LLM_API_KEY` (or run Ollama locally) to actually activate LLM
-  calls. Purely a config decision now — no code work required to switch.
+- **Choose + configure a provider** — set `PROCESSFORGE_LLM_PROVIDER`, then
+  either set `PROCESSFORGE_LLM_API_KEY` or run
+  `python -m llm.secrets set anthropic`/`openrouter` (or just run Ollama
+  locally, no key needed) to actually activate LLM calls. Purely a config
+  decision now — no code work required to switch providers.
 - **Loop 2** (thicken interviewer: adaptive follow-ups, full field extraction,
   pause/resume) — explicitly hand-build only per spec §6, judged by eye, not by a
   council ACCEPT gate. Needs a provider configured above before it can do
