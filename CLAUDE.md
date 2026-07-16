@@ -21,19 +21,42 @@ a new record. Every endpoint enforces tenant isolation at the DB level
 (`WHERE id = ? AND tenant = ?` in `kb/repository.py` — a wrong-tenant request
 gets an identical 404 to an unknown id, never a 403, so existence can't be
 enumerated). None of the new endpoints call `complete()` — builder/qa stay
-deterministic. With an explicit **stopgap auth model** —
-single shared bearer token via `PROCESSFORGE_API_TOKEN`, single-tenant-per-
-deployment, compared with `hmac.compare_digest`. `db_path` is always resolved
-server-side from `PROCESSFORGE_DB_PATH`, never accepted from the client
-(path-traversal guard). IP-keyed rate limiting via
-`PROCESSFORGE_RATE_LIMIT_PER_MINUTE` (defensively parsed — falls back to a
-default of 30 on blank/non-integer values). Tested in `tests/test_api.py`
-using the real `httpx` package — do **not** install `httpx2`; despite
-Starlette's own deprecation warning recommending it, `httpx2` is not a real
-project dependency and matches a typosquat pattern (flagged by Claude Code's
-safety classifier). **This auth model is an intentional stopgap, same pattern
-as `llm/client.py`'s stub — replace with real per-tenant auth before any
-multi-tenant deployment.**
+deterministic. `db_path` is always resolved server-side from
+`PROCESSFORGE_DB_PATH`, never accepted from the client (path-traversal guard).
+IP-keyed rate limiting via `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` (defensively
+parsed — falls back to a default of 30 on blank/non-integer values). Tested in
+`tests/test_api.py` using the real `httpx` package — do **not** install
+`httpx2`; despite Starlette's own deprecation warning recommending it,
+`httpx2` is not a real project dependency and matches a typosquat pattern
+(flagged by Claude Code's safety classifier).
+
+**Real operator login replaced the old shared-token stopgap.** New `auth/`
+package: `auth/hashing.py` (salted PBKDF2-HMAC-SHA256, 600k iterations,
+`hmac.compare_digest` verify, fail-closed on malformed stored values —
+NIST-recommended KDF, no `bcrypt`/`argon2` dependency needed), `auth/repository.py`
+(dedicated, non-tenant-scoped data layer for `operators`/`auth_tokens` — a
+NEW Alembic migration added these two tables to the same KB SQLite file;
+deliberately NOT folded into `kb/repository.py`'s tenant-resolving generic
+`get`/`put`, since operator accounts aren't tenant data), `auth/users.py`
+(CLI: `python -m auth.users create|list|delete` — no self-serve signup,
+matches the decided operator-only model: Brian's team are the only people
+who log in, not self-serve multi-tenant client accounts). `POST /auth/login`
+issues an opaque 7-day token (`secrets.token_urlsafe`, not a JWT — no
+signing-key management needed for a small number of server-revocable
+tokens) and returns an IDENTICAL 401 for both a wrong password and an
+unknown username (with a real dummy-hash `verify_password` call on the
+unknown-username path, so the code takes comparable time either way) — this
+blunts username enumeration. `POST /auth/logout` genuinely revokes a token
+(deletes the row; a reused token 401s afterward). All 5 previously-protected
+endpoints now call one `_authenticate()` helper doing a real
+`get_operator_by_token` lookup; `PROCESSFORGE_API_TOKEN` and its
+`hmac.compare_digest` check are **fully removed** — zero references remain
+anywhere in `api/main.py`. `GET /health` stays unauthenticated. Exhaustively
+adversarially reviewed across 6 cycles (2 REVISE rounds caught real bugs: a
+fail-open crash on a malformed/negative PBKDF2 iteration count, and a test
+that couldn't actually distinguish "token row deleted" from "token merely
+unreachable because its operator was deleted") — no bypass path found on
+any endpoint for missing/malformed/garbage/expired tokens.
 
 `llm/client.py`'s `complete()` is now fully implemented for **three** providers —
 Anthropic direct, OpenRouter, and Ollama (local) — selected at runtime via
@@ -95,12 +118,9 @@ Remaining before this is a usable product (none of these are council loops):
   single-shot (`POST /sessions` takes all answers at once); a real multi-turn
   flow needs new session state handling and API surface. Explicitly
   hand-build/judged-by-eye per spec §6, not a council ACCEPT gate.
-- **Real operator auth** — replace the API layer's shared-bearer-token stopgap
-  with a real login (Brian's team are the only operators — not self-serve
-  multi-tenant client accounts; they select `tenant` per request, same as
-  today). This is the next piece of work.
 - **Audit log** for approval-state changes, and a **delete-by-business**
-  endpoint (both required by the original spec §9, never built).
+  endpoint (both required by the original spec §9, never built). This is the
+  next piece of work.
 - **Frontend** — plain HTML/JS served by FastAPI (Jinja2 + vanilla JS,
   decided over a React/NEXUS-style split frontend to avoid a second
   toolchain for what's an internal operator tool) — once the backend above
@@ -131,7 +151,7 @@ Runs `pip-audit` against `requirements.lock.txt` then `pytest -q`. A failing pip
 
 ## Env vars
 
-See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY` for `llm/client.py`, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging.
+See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY`/`PROCESSFORGE_LLM_PROVIDER` for `llm/client.py`, `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` for the API, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging. No env var for API auth anymore — operator accounts are created via `python -m auth.users create <username>` (see `auth/users.py`), not configured in `.env`.
 
 ## Keeping the user manual current
 
