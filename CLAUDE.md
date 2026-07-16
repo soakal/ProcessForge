@@ -13,7 +13,8 @@ Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` 
 A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 (`GET /health`, `POST /sessions`, `GET /recommendations/{id}`, `POST
 /recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
-/automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`).
+/automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`,
+`POST /interviews`, `POST /interviews/{id}/answer`).
 All 6 pipeline stages are now reachable through
 the live API — `build` calls `stages/builder.py` (returns `409` via its
 `PermissionError` if the recommendation isn't `approved` yet, never a raw
@@ -139,19 +140,37 @@ as every other endpoint. Adversarially reviewed across 4 cycles — the
 independently traced, and the confirmation gate's "can never reach the DB
 on mismatch" property was verified structurally, not just by testing.
 
+**Loop 2's real remaining part is now built: a genuine multi-turn interview.**
+`POST /interviews` starts one (creates Business + Session, `status=active`,
+`transcript_ref=session.id`, seeds a fixed opening question — no adaptive
+element needed for the opener, there's no prior context to adapt to yet).
+`POST /interviews/{id}/answer` submits one answer at a time: persists it to
+the new `session_turns` table (new migration; `KBRepository.add_turn`/
+`list_turns`, same bypass-the-generic-machinery pattern as
+`audit_log`/`auth`), then calls `stages/interviewer.py`'s new
+`next_question(turns, ctx)` — LLM-first (reusing the SAME per-turn
+delimiter neutralization already twice-hardened for the extraction path,
+since this is a second place untrusted answer text reaches an LLM prompt),
+falling back to a **deterministic 3-question script** on ANY failure
+(matches today's fixed extraction fields: time/frequency, then desired
+outcome, then done). **Hard-capped at 6 answers regardless of what an LLM
+would ask** — enforced at the API layer, checked before `next_question` is
+even called, so a runaway adaptive conversation can't happen. Once
+complete, reuses `pipeline.py`'s `_finish_pipeline` (extracted from
+`run_session` in a byte-for-byte-behavior-preserving refactor) to run
+mapper→analyzer→architect and return the exact same response shape
+`POST /sessions` already returns. **`POST /sessions` is completely
+unaffected — untouched, still one-shot, all its existing tests pass
+unchanged** — this was purely additive. Zero real network calls anywhere
+in the 4-cycle build; the "does this conversation feel natural" judgment
+(per spec §6, only a human can make that call) happens in a real live
+conversation separately, not through the automated ACCEPT gate.
+
 Remaining before this is a usable product (none of these are council loops):
-- **Loop 2, the real remaining part** (adaptive follow-up QUESTIONS, a genuine
-  back-and-forth conversation, pause/resume across multiple turns) — a single
-  LLM-assisted extraction call from one batch of answers (done above) is not
-  the same thing as a conversational interview. The API shape is still
-  single-shot (`POST /sessions` takes all answers at once); a real multi-turn
-  flow needs new session state handling and API surface. Explicitly
-  hand-build/judged-by-eye per spec §6, not a council ACCEPT gate. This is
-  the next piece of backend work.
 - **Frontend** — plain HTML/JS served by FastAPI (Jinja2 + vanilla JS,
   decided over a React/NEXUS-style split frontend to avoid a second
-  toolchain for what's an internal operator tool) — once the backend above
-  is complete.
+  toolchain for what's an internal operator tool) — the entire backend is
+  now complete; this is the last piece.
 
 ## Build engine
 

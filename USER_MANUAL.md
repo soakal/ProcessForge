@@ -25,23 +25,32 @@ You tell it about a task you do (by typing some text describing it), and it:
 Nothing is ever built or run automatically. A human always has to approve a
 recommendation before anything is created.
 
-**Honesty check on today's behavior:** right now, ProcessForge does *not* have a
-back-and-forth conversation with you — you still type everything in one go, and you
-get back exactly one task, one estimate, and one draft recommendation each time. A
-real multi-turn interview (where it asks you follow-up questions) is planned but not
-built yet (see "What's coming next" below).
+**There are now two ways to describe a task:**
 
-**If you've connected an AI service** (see Setup, step 2), ProcessForge now uses it
-to read what you typed and figure out the task/timing/frequency details — a step up
-from simple phrase-matching, since it can understand context rather than just
-spotting exact words like "daily." **If you haven't connected an AI service, or the
-AI call fails for any reason** (no connection configured, a network hiccup, or the
-AI's answer doesn't make sense), ProcessForge automatically falls back to its
-original, predictable rule-based approach: it looks at the first line of what you
+1. **All at once** (`/sessions`, unchanged since earlier) — you type everything in
+   one go and get one result back immediately.
+2. **A real back-and-forth conversation** (`/interviews`, new) — ProcessForge asks
+   you one question at a time, you answer, it asks a follow-up (or decides it has
+   enough and wraps up), same as talking to a person doing an intake interview. See
+   "Having a real conversation" below for how to use this.
+
+Both ways end up extracting the same kind of task/estimate/recommendation — the
+conversational version just gets there by asking rather than requiring you to guess
+what to include in one big answer up front.
+
+**If you've connected an AI service** (see Setup, step 2), ProcessForge uses it to
+read what you typed and figure out the task/timing/frequency details (for
+`/sessions`) or decide what to ask next (for `/interviews`) — a step up from simple
+phrase-matching, since it can understand context rather than just spotting exact
+words like "daily." **If you haven't connected an AI service, or the AI call fails
+for any reason** (no connection configured, a network hiccup, or the AI's answer
+doesn't make sense), ProcessForge automatically falls back to a predictable,
+rule-based approach instead: for `/sessions`, it looks at the first line of what you
 typed as the task description, the last line as the outcome you want, and scans
-everything in between for time/frequency clues. You always get a usable result
-either way — the fallback exists specifically so a flaky AI connection never breaks
-a session.
+everything in between for time/frequency clues; for `/interviews`, it asks the same
+fixed 3 questions every time (how long/how often, then desired outcome, then it's
+done). You always get a usable result either way — the fallback exists specifically
+so a flaky AI connection never breaks things, for either kind of session.
 
 ---
 
@@ -234,6 +243,48 @@ ProcessForge replies with:
 
 ---
 
+## Having a real conversation (instead of typing everything at once)
+
+Instead of `/sessions` (where you write out everything up front), you can have
+ProcessForge ask you questions one at a time.
+
+**1. Start the conversation:**
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8000/interviews -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"business_name\": \"Acme Bookkeeping\", \"tenant\": \"acme\"}"
+```
+
+You'll get back a `session_id` and a `question` — the first thing ProcessForge wants
+to know. Read the question, decide your answer.
+
+**2. Answer it, and keep answering until it says it's done:**
+
+```powershell
+curl.exe -s -X POST "http://127.0.0.1:8000/interviews/THE_SESSION_ID/answer?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"answer\": \"We manually reconcile invoices every week.\"}"
+```
+
+Each time, you'll get back one of two things:
+- **Another `question`** — answer it the same way, sending it back to the same
+  `/interviews/THE_SESSION_ID/answer` address.
+- **The final result** — the same shape you'd get from `/sessions` (the task it
+  found, the estimated hours saved, and a draft recommendation). This means the
+  conversation is over — you don't need to send another answer to this session.
+
+Without an AI service connected, this always takes exactly 3 answers (a fixed,
+predictable set of questions). With one connected, ProcessForge decides on its own
+when it has enough information — it will never ask more than 6 questions total,
+even if it would otherwise keep going, so a conversation can't run forever.
+
+**Once a conversation is finished, that session is done** — sending another answer
+to it gets refused (an error saying the interview is already complete), the same
+way trying to build an automation twice or delete the same business twice does.
+
+Everything else about a finished conversation — approving the recommendation,
+building the automation, giving feedback — works exactly the same as described
+above for `/sessions`.
+
+---
+
 ## Approving a recommendation and building the automation
 
 Every recommendation starts out as a **draft** — nothing happens until a person
@@ -330,12 +381,8 @@ past transaction history with that bank.)
 
 ## What's coming next
 
-These are known, planned improvements — not promises of a specific date:
+The one known, planned improvement left — not a promise of a specific date:
 
-- **A real back-and-forth interview.** Right now, even with an AI service connected,
-  you still type everything in one go and get one result back. A future version will
-  actually ask you follow-up questions across multiple turns, instead of processing
-  everything you type at once.
 - **An actual website**, instead of typing commands into a terminal window.
 
 ---
