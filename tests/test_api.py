@@ -5,6 +5,7 @@ import importlib
 import os
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -29,19 +30,31 @@ def _seed_operator(db_path, username="alice", password="correct-horse-battery"):
         repo.close()
 
 
-def _set_env(monkeypatch, tmp_path, token="secret-token", rate_limit=None):
-    monkeypatch.setenv("PROCESSFORGE_API_TOKEN", token)
+def _login_token(client, db_path, username="alice", password="correct-horse-battery"):
+    """Seed an operator and log in via POST /auth/login to obtain a real bearer
+    token — the replacement for the old shared PROCESSFORGE_API_TOKEN in tests
+    that call one of the 5 protected endpoints."""
+    _seed_operator(db_path, username=username, password=password)
+    response = client.post(
+        "/auth/login",
+        json={"username": username, "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
+def _set_env(monkeypatch, tmp_path, rate_limit=None):
     monkeypatch.setenv("PROCESSFORGE_DB_PATH", str(tmp_path / "test.db"))
     if rate_limit is not None:
         monkeypatch.setenv("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", str(rate_limit))
 
 
-def _create_recommendation(client, tenant="acme"):
+def _create_recommendation(client, token, tenant="acme"):
     """Seed a real, persisted Business/Task/Opportunity/Recommendation chain via
     POST /sessions and return the first recommendation from the response."""
     response = client.post(
         "/sessions",
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={
             "business_name": "Test Co",
             "tenant": tenant,
@@ -82,13 +95,13 @@ def test_sessions_missing_token_rejected(monkeypatch, tmp_path):
     assert response.status_code == 401
 
 
-def test_sessions_wrong_token_rejected(monkeypatch, tmp_path):
+def test_sessions_garbage_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path)
     client = _client()
 
     response = client.post(
         "/sessions",
-        headers={"Authorization": "Bearer wrong-token"},
+        headers={"Authorization": "Bearer garbage-token"},
         json={
             "business_name": "Test Co",
             "tenant": "test-tenant",
@@ -101,11 +114,13 @@ def test_sessions_wrong_token_rejected(monkeypatch, tmp_path):
 
 def test_sessions_valid_token_returns_session_result(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
+    token = _login_token(client, db_path)
 
     response = client.post(
         "/sessions",
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={
             "business_name": "Test Co",
             "tenant": "test-tenant",
@@ -130,11 +145,13 @@ def test_sessions_valid_token_returns_session_result(monkeypatch, tmp_path):
 
 def test_sessions_blank_rate_limit_env_falls_back_to_default(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit="")
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
+    token = _login_token(client, db_path)
 
     response = client.post(
         "/sessions",
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={
             "business_name": "Test Co",
             "tenant": "test-tenant",
@@ -146,15 +163,27 @@ def test_sessions_blank_rate_limit_env_falls_back_to_default(monkeypatch, tmp_pa
 
 
 def test_sessions_rate_limit_returns_429(monkeypatch, tmp_path):
-    _set_env(monkeypatch, tmp_path, rate_limit=2)
+    # Log in under a generous rate limit first — logging in itself counts against
+    # the same per-IP bucket the /sessions calls below will use — then drop to a
+    # tight limit and clear the bucket so the 5 /sessions attempts below start
+    # from a clean count instead of inheriting usage from the login call (or from
+    # other tests sharing the same in-process bucket dict within this minute).
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
+    token = _login_token(client, db_path)
+
+    from api.main import _rate_limit_buckets
+
+    monkeypatch.setenv("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", "2")
+    _rate_limit_buckets.clear()
 
     payload = {
         "business_name": "Test Co",
         "tenant": "test-tenant",
         "answers": ["We manually reconcile invoices every week."],
     }
-    headers = {"Authorization": "Bearer secret-token"}
+    headers = {"Authorization": f"Bearer {token}"}
 
     statuses = [
         client.post("/sessions", headers=headers, json=payload).status_code
@@ -167,7 +196,8 @@ def test_sessions_rate_limit_returns_429(monkeypatch, tmp_path):
 def test_env_vars_from_dotenv_file_are_loaded_at_import_time(monkeypatch, tmp_path):
     """FIX 1 regression: api/main.py must call load_dotenv() at import time — uvicorn does
     not read .env on its own, so the documented `python -m uvicorn api.main:app` setup would
-    never see PROCESSFORGE_API_TOKEN (etc.) from a .env file without this call."""
+    never see settings (e.g. PROCESSFORGE_RATE_LIMIT_PER_MINUTE) from a .env file without
+    this call."""
     import dotenv.main as dotenv_main
 
     import api.main as main_module
@@ -189,8 +219,10 @@ def test_env_vars_from_dotenv_file_are_loaded_at_import_time(monkeypatch, tmp_pa
 
 
 def test_sessions_non_ascii_token_rejected_not_500(monkeypatch, tmp_path):
-    """FIX 2 regression: hmac.compare_digest raises TypeError (-> 500) on non-ASCII str
-    input; a non-ASCII bearer token must be rejected with 401, not crash."""
+    """FIX 2 regression (historical): a non-ASCII bearer token used to crash the old
+    hmac.compare_digest-based check with a TypeError (-> 500). That comparison is gone
+    now that auth is a real DB lookup, but a non-ASCII token is still just an unresolvable
+    token and must be rejected with 401, not crash."""
     from api.main import app
 
     _set_env(monkeypatch, tmp_path)
@@ -202,7 +234,7 @@ def test_sessions_non_ascii_token_rejected_not_500(monkeypatch, tmp_path):
         "/sessions",
         # httpx's own header normalization rejects non-ASCII str header values before
         # the request is even sent, so use raw utf-8 bytes to actually exercise the
-        # server-side hmac.compare_digest() call with a non-ASCII token.
+        # server-side token lookup with a non-ASCII token.
         headers={"Authorization": "Bearer café-token".encode("utf-8")},
         json={
             "business_name": "Test Co",
@@ -225,7 +257,7 @@ def test_sessions_bad_token_requests_count_against_rate_limit(monkeypatch, tmp_p
         "tenant": "test-tenant",
         "answers": ["We manually reconcile invoices every week."],
     }
-    bad_headers = {"Authorization": "Bearer wrong-token"}
+    bad_headers = {"Authorization": "Bearer garbage-token"}
 
     statuses = [
         client.post("/sessions", headers=bad_headers, json=payload).status_code
@@ -255,13 +287,15 @@ def test_check_rate_limit_prunes_stale_window_entries(monkeypatch):
 
 def test_get_recommendation_happy_path(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.get(
         f"/recommendations/{recommendation['id']}",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
@@ -274,13 +308,15 @@ def test_get_recommendation_happy_path(monkeypatch, tmp_path):
 
 def test_get_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    _create_recommendation(client, token, tenant="acme")
 
     response = client.get(
         "/recommendations/does-not-exist",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 404
@@ -290,13 +326,15 @@ def test_get_recommendation_wrong_tenant_returns_404(monkeypatch, tmp_path):
     """Real tenant-isolation test: a valid id under one tenant must be invisible
     (404, not 403 — don't leak that the id exists) when queried under another."""
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.get(
         f"/recommendations/{recommendation['id']}",
         params={"tenant": "other-tenant"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 404
@@ -304,13 +342,15 @@ def test_get_recommendation_wrong_tenant_returns_404(monkeypatch, tmp_path):
 
 def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     approve_response = client.post(
         f"/recommendations/{recommendation['id']}/approve",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert approve_response.status_code == 200
@@ -319,7 +359,7 @@ def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
     get_response = client.get(
         f"/recommendations/{recommendation['id']}",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert get_response.status_code == 200
@@ -328,13 +368,15 @@ def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
 
 def test_approve_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         "/recommendations/does-not-exist/approve",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 404
@@ -342,8 +384,10 @@ def test_approve_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
 
 def test_get_recommendation_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.get(
         f"/recommendations/{recommendation['id']}",
@@ -355,8 +399,10 @@ def test_get_recommendation_missing_token_rejected(monkeypatch, tmp_path):
 
 def test_approve_recommendation_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         f"/recommendations/{recommendation['id']}/approve",
@@ -366,11 +412,11 @@ def test_approve_recommendation_missing_token_rejected(monkeypatch, tmp_path):
     assert response.status_code == 401
 
 
-def _approve_recommendation(client, recommendation_id, tenant="acme"):
+def _approve_recommendation(client, recommendation_id, token, tenant="acme"):
     response = client.post(
         f"/recommendations/{recommendation_id}/approve",
         params={"tenant": tenant},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
     return response.json()
@@ -378,19 +424,20 @@ def _approve_recommendation(client, recommendation_id, tenant="acme"):
 
 def test_build_automation_on_unapproved_recommendation_returns_409(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 409
     assert "approved" in response.json()["detail"]
 
-    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
@@ -404,14 +451,16 @@ def test_build_automation_on_unapproved_recommendation_returns_409(monkeypatch, 
 
 def test_build_automation_on_approved_recommendation_returns_200(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
-    _approve_recommendation(client, recommendation["id"], tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
 
     response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
@@ -425,13 +474,15 @@ def test_build_automation_on_approved_recommendation_returns_200(monkeypatch, tm
 
 def test_build_automation_unknown_id_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         "/recommendations/does-not-exist/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 404
@@ -439,14 +490,16 @@ def test_build_automation_unknown_id_returns_404(monkeypatch, tmp_path):
 
 def test_build_automation_wrong_tenant_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
-    _approve_recommendation(client, recommendation["id"], tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
 
     response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "other-tenant"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 404
@@ -454,8 +507,10 @@ def test_build_automation_wrong_tenant_returns_404(monkeypatch, tmp_path):
 
 def test_build_automation_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         f"/recommendations/{recommendation['id']}/build",
@@ -467,14 +522,16 @@ def test_build_automation_missing_token_rejected(monkeypatch, tmp_path):
 
 def test_submit_automation_feedback_happy_path(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
-    _approve_recommendation(client, recommendation["id"], tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
 
     build_response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert build_response.status_code == 200
     automation = build_response.json()
@@ -483,7 +540,7 @@ def test_submit_automation_feedback_happy_path(monkeypatch, tmp_path):
     feedback_response = client.post(
         f"/automations/{automation['id']}/feedback",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={"feedback": feedback},
     )
 
@@ -497,13 +554,15 @@ def test_submit_automation_feedback_happy_path(monkeypatch, tmp_path):
 
 def test_submit_automation_feedback_unknown_id_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    _create_recommendation(client, tenant="acme")
+    token = _login_token(client, db_path)
+    _create_recommendation(client, token, tenant="acme")
 
     response = client.post(
         "/automations/does-not-exist/feedback",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={"feedback": "Needs more detail."},
     )
 
@@ -512,14 +571,16 @@ def test_submit_automation_feedback_unknown_id_returns_404(monkeypatch, tmp_path
 
 def test_submit_automation_feedback_wrong_tenant_returns_404(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
-    _approve_recommendation(client, recommendation["id"], tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
 
     build_response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert build_response.status_code == 200
     automation = build_response.json()
@@ -527,7 +588,7 @@ def test_submit_automation_feedback_wrong_tenant_returns_404(monkeypatch, tmp_pa
     response = client.post(
         f"/automations/{automation['id']}/feedback",
         params={"tenant": "other-tenant"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
         json={"feedback": "Needs more detail."},
     )
 
@@ -536,14 +597,16 @@ def test_submit_automation_feedback_wrong_tenant_returns_404(monkeypatch, tmp_pa
 
 def test_submit_automation_feedback_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
-    recommendation = _create_recommendation(client, tenant="acme")
-    _approve_recommendation(client, recommendation["id"], tenant="acme")
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
 
     build_response = client.post(
         f"/recommendations/{recommendation['id']}/build",
         params={"tenant": "acme"},
-        headers={"Authorization": "Bearer secret-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert build_response.status_code == 200
     automation = build_response.json()
@@ -688,3 +751,57 @@ def test_logout_rate_limited(monkeypatch, tmp_path):
     ]
 
     assert 429 in statuses
+
+
+def test_login_e2e_authenticates_protected_endpoint(monkeypatch, tmp_path):
+    """End-to-end: a token obtained via a real POST /auth/login call must
+    successfully authenticate against a protected endpoint (POST /sessions) —
+    this is now the only auth path, replacing the old shared static token."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "test-tenant",
+            "answers": ["We manually reconcile invoices every week."],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task_count"] == 1
+
+
+def test_expired_token_rejected_on_protected_endpoint(monkeypatch, tmp_path):
+    """An expired token must be rejected on a protected endpoint the same as a
+    nonexistent one — mirrors the direct-repo expiry test in
+    tests/test_auth_repository.py, but exercised through POST /sessions
+    instead of calling AuthRepository directly."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("UPDATE auth_tokens SET expires_at = ? WHERE token = ?", (past, token))
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "test-tenant",
+            "answers": ["We manually reconcile invoices every week."],
+        },
+    )
+
+    assert response.status_code == 401

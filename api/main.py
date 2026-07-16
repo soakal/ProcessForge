@@ -1,13 +1,17 @@
 """FastAPI app for ProcessForge.
 
-Auth stopgap (§9 pattern, matches llm/client.py): this is single-tenant-per-deployment
-auth. A single shared bearer token (PROCESSFORGE_API_TOKEN) gates all callers of this
-deployment; there is no per-tenant credential yet, even though requests carry a
-`tenant` field. Replace with real per-tenant auth before this is exposed beyond a
-trusted, single-tenant deployment.
+Auth: real per-operator login. Operator accounts are created out-of-band via
+`python -m auth.users create <username>` (see auth/users.py); there is no
+self-service signup endpoint. `POST /auth/login` exchanges a username/password
+for a bearer token (auth/repository.py's AuthRepository.create_token, with a
+7-day TTL); that token is then required, via the `Authorization: Bearer <token>`
+header, on every protected endpoint below. `_authenticate()` resolves the token
+to an operator on each request, rejecting missing, malformed, unknown, or
+expired tokens with the same 401 "invalid credentials" response. Tokens are
+still shared across tenants — there is no per-tenant credential yet, even
+though requests carry a `tenant` field.
 """
 from __future__ import annotations
-import hmac
 import os
 import time
 from collections import defaultdict
@@ -114,6 +118,27 @@ def _open_repo(db_path: str) -> tuple[KBRepository, _Ctx]:
     return repo, ctx
 
 
+def _authenticate(authorization: str | None, db_path: str) -> dict:
+    """Resolve the bearer token in `authorization` to an operator dict via
+    AuthRepository.get_operator_by_token, mirroring /auth/logout's own
+    lookup. Raises the same 401 "invalid credentials" used by /auth/login
+    for a missing header, a malformed header, an unknown token, or an
+    expired one — callers never learn which."""
+    provided_token = ""
+    if authorization and authorization.startswith("Bearer "):
+        provided_token = authorization[len("Bearer "):]
+
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        operator = repo.get_operator_by_token(provided_token)
+    finally:
+        repo.close()
+    if operator is None:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    return operator
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -130,19 +155,8 @@ def create_session(
     client_host = request.client.host if request.client else "unknown"
     _check_rate_limit(client_host)
 
-    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
-    provided_token = ""
-    if authorization and authorization.startswith("Bearer "):
-        provided_token = authorization[len("Bearer "):]
-    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
-    # containing non-ASCII characters.
-    if not expected_token or not hmac.compare_digest(
-        provided_token.encode("utf-8", "surrogateescape"),
-        expected_token.encode("utf-8", "surrogateescape"),
-    ):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
     result = run_session(body.business_name, body.tenant, body.answers, db_path)
 
     return SessionResponse(
@@ -166,19 +180,8 @@ def get_recommendation(
     client_host = request.client.host if request.client else "unknown"
     _check_rate_limit(client_host)
 
-    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
-    provided_token = ""
-    if authorization and authorization.startswith("Bearer "):
-        provided_token = authorization[len("Bearer "):]
-    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
-    # containing non-ASCII characters.
-    if not expected_token or not hmac.compare_digest(
-        provided_token.encode("utf-8", "surrogateescape"),
-        expected_token.encode("utf-8", "surrogateescape"),
-    ):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
     repo, _ctx = _open_repo(db_path)
     try:
         row = repo.get("recommendations", recommendation_id, tenant)
@@ -203,19 +206,8 @@ def approve_recommendation(
     client_host = request.client.host if request.client else "unknown"
     _check_rate_limit(client_host)
 
-    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
-    provided_token = ""
-    if authorization and authorization.startswith("Bearer "):
-        provided_token = authorization[len("Bearer "):]
-    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
-    # containing non-ASCII characters.
-    if not expected_token or not hmac.compare_digest(
-        provided_token.encode("utf-8", "surrogateescape"),
-        expected_token.encode("utf-8", "surrogateescape"),
-    ):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
     repo, _ctx = _open_repo(db_path)
     try:
         row = repo.get("recommendations", recommendation_id, tenant)
@@ -242,19 +234,8 @@ def build_automation(
     client_host = request.client.host if request.client else "unknown"
     _check_rate_limit(client_host)
 
-    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
-    provided_token = ""
-    if authorization and authorization.startswith("Bearer "):
-        provided_token = authorization[len("Bearer "):]
-    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
-    # containing non-ASCII characters.
-    if not expected_token or not hmac.compare_digest(
-        provided_token.encode("utf-8", "surrogateescape"),
-        expected_token.encode("utf-8", "surrogateescape"),
-    ):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
     repo, ctx = _open_repo(db_path)
     try:
         row = repo.get("recommendations", recommendation_id, tenant)
@@ -288,19 +269,8 @@ def submit_automation_feedback(
     client_host = request.client.host if request.client else "unknown"
     _check_rate_limit(client_host)
 
-    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
-    provided_token = ""
-    if authorization and authorization.startswith("Bearer "):
-        provided_token = authorization[len("Bearer "):]
-    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
-    # containing non-ASCII characters.
-    if not expected_token or not hmac.compare_digest(
-        provided_token.encode("utf-8", "surrogateescape"),
-        expected_token.encode("utf-8", "surrogateescape"),
-    ):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
     repo, ctx = _open_repo(db_path)
     try:
         row = repo.get("automations", automation_id, tenant)
