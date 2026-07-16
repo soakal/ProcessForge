@@ -10,6 +10,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
+import llm.client
 from contracts.records import Business, Session, Task, Opportunity, Recommendation
 from kb.repository import KBRepository
 from sinks.kb_sink import KBSink
@@ -29,7 +30,7 @@ class _Ctx:
         self.session_id = session_id
 
     def complete(self, messages, tier):
-        raise NotImplementedError("LLM client not wired in Loop 1")
+        return llm.client.complete(messages, tier)
 
 
 @dataclass
