@@ -57,7 +57,12 @@ class SessionResponse(BaseModel):
 
 
 def _check_rate_limit(client_host: str) -> None:
-    limit = int(os.environ.get("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", _DEFAULT_RATE_LIMIT_PER_MINUTE))
+    raw_limit = os.environ.get("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", "")
+    try:
+        # Env var may be set but empty (e.g. .env.example copied verbatim).
+        limit = int(raw_limit) if raw_limit.strip() else _DEFAULT_RATE_LIMIT_PER_MINUTE
+    except ValueError:
+        limit = _DEFAULT_RATE_LIMIT_PER_MINUTE
     window = int(time.time() // 60)
     key = (client_host, window)
     _rate_limit_buckets[key] += 1

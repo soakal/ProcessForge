@@ -89,6 +89,23 @@ def test_sessions_valid_token_returns_session_result(monkeypatch, tmp_path):
     assert body["recommendations"][0]["approval_state"] == "draft"
 
 
+def test_sessions_blank_rate_limit_env_falls_back_to_default(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit="")
+    client = _client()
+
+    response = client.post(
+        "/sessions",
+        headers={"Authorization": "Bearer secret-token"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "test-tenant",
+            "answers": ["We manually reconcile invoices every week."],
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_sessions_rate_limit_returns_429(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=2)
     client = _client()
