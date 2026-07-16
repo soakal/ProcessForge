@@ -9,6 +9,8 @@ a KB-only `tenant` column (not part of the Pydantic contract, stripped on read).
 from __future__ import annotations
 import json
 import sqlite3
+import uuid
+from datetime import datetime, timezone
 
 COLUMNS: dict[str, list[str]] = {
     "businesses": ["id", "schema_version", "tenant", "name", "meta"],
@@ -104,6 +106,52 @@ class KBRepository:
         else:
             raise ValueError(f"{kind} is not scoped to a business")
         return [self._deserialize(kind, r) for r in rows]
+
+    # -- audit_log: append-only, no parent-chain tenant resolution needed (caller
+    # already knows the tenant), so these bypass _resolve_tenant entirely. --
+    def log_approval_change(
+        self,
+        *,
+        operator_id: str,
+        tenant: str,
+        record_kind: str,
+        record_id: str,
+        field: str,
+        old_value: str,
+        new_value: str,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO audit_log "
+            "(id, ts, operator_id, tenant, record_kind, record_id, field, old_value, new_value) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                datetime.now(timezone.utc).isoformat(),
+                operator_id,
+                tenant,
+                record_kind,
+                record_id,
+                field,
+                old_value,
+                new_value,
+            ),
+        )
+        self._conn.commit()
+
+    def list_audit_log(self, tenant: str, record_id: str | None = None) -> list[dict]:
+        if record_id is None:
+            rows = self._conn.execute(
+                "SELECT id, ts, operator_id, tenant, record_kind, record_id, field, old_value, new_value "
+                "FROM audit_log WHERE tenant = ? ORDER BY ts",
+                (tenant,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, ts, operator_id, tenant, record_kind, record_id, field, old_value, new_value "
+                "FROM audit_log WHERE tenant = ? AND record_id = ? ORDER BY ts",
+                (tenant, record_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # -- tenant resolution: the one piece of business logic the repo must own (§9) --
     def _resolve_tenant(self, kind: str, record: dict) -> str:
