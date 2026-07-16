@@ -31,8 +31,16 @@ class SessionResult:
     business: Business
     session: Session
     tasks: list[Task]
-    opportunity: Opportunity
-    recommendation: Recommendation
+    opportunities: list[Opportunity]
+    recommendations: list[Recommendation]
+
+    @property
+    def opportunity(self) -> Opportunity:
+        return self.opportunities[0]
+
+    @property
+    def recommendation(self) -> Recommendation:
+        return self.recommendations[0]
 
 
 def _migrate(db_path: str) -> None:
@@ -63,18 +71,19 @@ def run_session(business_name: str, tenant: str, answers: list[str], db_path: st
         sink.save(graph, ctx)
 
         opportunities = analyzer.run((graph, tasks), ctx)
-        opportunity = opportunities[0]
-        sink.save(opportunity, ctx)
+        for opportunity in opportunities:
+            sink.save(opportunity, ctx)
 
-        recommendation = architect.run(opportunity, ctx)
-        sink.save(recommendation, ctx)
+        recommendations = architect.run(opportunities, ctx)
+        for recommendation in recommendations:
+            sink.save(recommendation, ctx)
 
         return SessionResult(
             business=business,
             session=session,
             tasks=tasks,
-            opportunity=opportunity,
-            recommendation=recommendation,
+            opportunities=opportunities,
+            recommendations=recommendations,
         )
     finally:
         repo.close()
