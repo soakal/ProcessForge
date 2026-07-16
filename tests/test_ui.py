@@ -31,3 +31,23 @@ def test_ui_static_js_served():
     client = _client()
     response = client.get("/ui/static/app.js")
     assert response.status_code == 200
+
+
+def test_ui_dashboard_renders_form():
+    client = _client()
+    response = client.get("/ui")
+    assert response.status_code == 200
+    assert "business_name" in response.text
+    assert "tenant" in response.text
+
+
+def test_ui_interview_renders_page():
+    client = _client()
+    response = client.get("/ui/interview")
+    assert response.status_code == 200
+    # TestClient's GET carries no browser sessionStorage, so the JS-driven
+    # question/answer flow never runs here — this only confirms the page
+    # structure (including the "no interview in progress" fallback text
+    # that renders when pf_interview_state is absent) is present in the
+    # rendered HTML.
+    assert "No interview in progress" in response.text

@@ -183,6 +183,20 @@ def ui_login(request: Request):
     return templates.TemplateResponse(request, "login.html")
 
 
+@app.get("/ui")
+def ui_dashboard(request: Request):
+    # No server-side auth check — requireAuth() in dashboard.html redirects to
+    # /ui/login client-side if there's no token, same as the rest of /ui.
+    return templates.TemplateResponse(request, "dashboard.html")
+
+
+@app.get("/ui/interview")
+def ui_interview(request: Request):
+    # No server-side auth check — requireAuth() in interview.html redirects to
+    # /ui/login client-side if there's no token, same as the rest of /ui.
+    return templates.TemplateResponse(request, "interview.html")
+
+
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(
     body: SessionRequest,

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Interview — ProcessForge{% endblock %}
+{% block content %}
+<h1>Interview</h1>
+<div id="interview-missing" class="error-message"></div>
+<div id="interview-question-area">
+  <p id="interview-question"></p>
+  <form id="answer-form">
+    <div>
+      <label for="answer">Your Answer</label>
+      <input type="text" id="answer" name="answer" required>
+    </div>
+    <div id="answer-error" class="error-message"></div>
+    <button type="submit">Submit Answer</button>
+  </form>
+</div>
+<div id="interview-result" style="display:none;">
+  <p id="result-task-count"></p>
+  <p id="result-roi"></p>
+  <p id="result-summary"></p>
+  <a id="result-link" href="#">View Recommendation</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  requireAuth();
+
+  const missingBox = document.getElementById("interview-missing");
+  const questionArea = document.getElementById("interview-question-area");
+  const resultArea = document.getElementById("interview-result");
+
+  function showFallback(message) {
+    questionArea.style.display = "none";
+    missingBox.textContent = message;
+    missingBox.appendChild(document.createElement("br"));
+    const link = document.createElement("a");
+    link.href = "/ui";
+    link.textContent = "Back to dashboard";
+    missingBox.appendChild(link);
+  }
+
+  let state = null;
+  const raw = sessionStorage.getItem("pf_interview_state");
+  if (raw) {
+    try {
+      state = JSON.parse(raw);
+    } catch (err) {
+      state = null;
+    }
+  }
+
+  if (!state || !state.session_id || !state.question) {
+    showFallback("No interview in progress — start one from the dashboard.");
+  } else {
+    document.getElementById("interview-question").textContent = state.question;
+
+    document.getElementById("answer-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorBox = document.getElementById("answer-error");
+      errorBox.textContent = "";
+
+      const answerInput = document.getElementById("answer");
+      const answer = answerInput.value;
+
+      let response;
+      try {
+        response = await fetchWithAuth(
+          "/interviews/" + state.session_id + "/answer?tenant=" + encodeURIComponent(state.tenant),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ answer }),
+          }
+        );
+      } catch (err) {
+        errorBox.textContent = "Could not reach the server. Please try again.";
+        return;
+      }
+
+      if (response.status === 409) {
+        showFallback("This interview is already complete.");
+        return;
+      }
+
+      if (response.status === 404) {
+        showFallback("Interview session not found.");
+        return;
+      }
+
+      if (!response.ok) {
+        errorBox.textContent = "Something went wrong. Please try again.";
+        return;
+      }
+
+      const data = await response.json();
+
+      // Completion is detected by the PRESENCE of the completion fields
+      // (task_count/opportunities/recommendations), not by the absence of
+      // `question` — the in-progress response never carries task_count at
+      // all, so checking for it directly is the more precise signal.
+      if (data.task_count !== undefined) {
+        questionArea.style.display = "none";
+        resultArea.style.display = "block";
+
+        document.getElementById("result-task-count").textContent =
+          "Tasks discovered: " + data.task_count;
+
+        const opportunity = data.opportunities && data.opportunities[0];
+        if (opportunity) {
+          document.getElementById("result-roi").textContent =
+            "Estimated ROI: " + opportunity.roi_low_hrs + "–" + opportunity.roi_high_hrs + " hrs";
+        }
+
+        const recommendation = data.recommendations && data.recommendations[0];
+        if (recommendation) {
+          document.getElementById("result-summary").textContent = recommendation.summary;
+          const link = document.getElementById("result-link");
+          link.href = "/ui/recommendations/" + recommendation.id + "?tenant=" + encodeURIComponent(state.tenant);
+        }
+
+        sessionStorage.removeItem("pf_interview_state");
+      } else {
+        state.question = data.question;
+        sessionStorage.setItem("pf_interview_state", JSON.stringify(state));
+        document.getElementById("interview-question").textContent = state.question;
+        answerInput.value = "";
+      }
+    });
+  }
+</script>
+{% endblock %}
