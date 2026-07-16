@@ -1,4 +1,7 @@
-"""Seam: transcript -> Task[]. Hand-built (Loop 2), not council-built."""
+"""Seam: transcript -> Task[]. Loop 1's deterministic placeholder extraction:
+first line = task description, last line = desired outcome, regex-based
+time/frequency detection. True Loop 2 (adaptive, conversational extraction) is
+still pending and will be hand-built separately, not through the council."""
 from __future__ import annotations
 import re
 import uuid

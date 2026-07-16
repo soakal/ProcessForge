@@ -71,8 +71,8 @@ blank values, called `.env.example`, is already included. Copy it and fill it in
 Copy-Item .env.example .env
 ```
 
-Then open `.env` in a text editor and fill in these two values — they're the only
-ones you truly need right now:
+Then open `.env` in a text editor and fill in these values. The first two are the
+only ones you truly need right now; the third is optional but worth knowing about:
 
 - **`PROCESSFORGE_DB_PATH`** — this is where ProcessForge stores its data (the tasks,
   estimates, and recommendations it creates) on your computer, as a file. The
@@ -80,9 +80,21 @@ ones you truly need right now:
 - **`PROCESSFORGE_API_TOKEN`** — this is the password anyone (including you) needs
   to provide to use ProcessForge. Pick any password-like string of your own — there's
   no required format, just make it something not easily guessed. **This one matters:
-  if you leave it blank, ProcessForge will refuse every single request you send it**
-  (you'll get an error that says you're "not authenticated"). You must set a real
-  value here before ProcessForge will do anything for you.
+  if you leave it blank, ProcessForge will refuse every request that actually does
+  anything** (you'll get an error that says you're "not authenticated"). The one
+  exception is a small built-in "are you running?" check (a web address ending in
+  `/health`) that ProcessForge deliberately leaves open with no password required,
+  so you — or an automated monitoring tool — can confirm the program is up without
+  needing a password first. That check doesn't do anything with your data; it just
+  reports "ok." You must still set a real value for `PROCESSFORGE_API_TOKEN` before
+  ProcessForge will do anything useful for you.
+- **`PROCESSFORGE_RATE_LIMIT_PER_MINUTE`** — this limits how many requests any one
+  visitor can send in a single minute, so one person (or a runaway script, or
+  someone abusing the system) can't overload ProcessForge. You can leave this blank
+  to use the built-in default (30 requests per minute per visitor), or set your own
+  number. If someone goes over the limit, they get an error response that says
+  "Rate limit exceeded" — that just means slow down: wait a minute and send the
+  request again.
 
 Everything else in `.env` (the lines starting with `PROCESSFORGE_LLM_`,
 `PROCESSFORGE_MODEL_`, and `PROCESSFORGE_OLLAMA_HOST`) is about connecting an AI
@@ -122,30 +134,46 @@ in that window whenever you want to stop it.
 Once ProcessForge is running (step 4 above), you talk to it by sending it a request.
 The address you send that request to is `/sessions`. Here's a copy-pasteable example
 using `curl.exe` (a simple command-line tool for sending requests), which you can run
-from a *second* terminal window while ProcessForge is still running in the first:
+from a *second* terminal window while ProcessForge is still running in the first.
+
+To avoid quoting problems that can happen when different versions of PowerShell
+handle quote marks differently, first save the request's contents to a small file:
+
+```powershell
+@'
+{
+  "business_name": "Acme Bookkeeping",
+  "tenant": "acme",
+  "answers": [
+    "We manually reconcile invoices every week.",
+    "It takes about 3 hours and we do it weekly.",
+    "We would like it to happen automatically."
+  ]
+}
+'@ | Set-Content -Path session.json -Encoding utf8
+```
+
+Then send it:
 
 ```powershell
 curl.exe -X POST http://127.0.0.1:8000/sessions `
   -H "Authorization: Bearer YOUR_PASSWORD_HERE" `
   -H "Content-Type: application/json" `
-  -d '{
-    "business_name": "Acme Bookkeeping",
-    "tenant": "acme",
-    "answers": [
-      "We manually reconcile invoices every week.",
-      "It takes about 3 hours and we do it weekly.",
-      "We would like it to happen automatically."
-    ]
-  }'
+  -d "@session.json"
 ```
 
 Here's what each part means:
 
+- **The first block** — writes the details of the task you want to describe into a
+  file named `session.json` sitting next to it. Edit the `business_name`, `tenant`,
+  and `answers` values to describe your own task before saving.
 - **`http://127.0.0.1:8000/sessions`** — the address of the ProcessForge program
   running on your own computer.
 - **`Authorization: Bearer YOUR_PASSWORD_HERE`** — replace `YOUR_PASSWORD_HERE` with
   the exact value you put in `PROCESSFORGE_API_TOKEN` in your `.env` file. This is
   required — without it, ProcessForge rejects your request.
+- **`-d "@session.json"`** — tells `curl.exe` to send the contents of the file you
+  just saved as the request.
 - **`business_name`** — the name of the business this task belongs to.
 - **`tenant`** — which client or company this is for. One ProcessForge setup can be
   used for many different clients/companies, and this tells it which one you mean.
