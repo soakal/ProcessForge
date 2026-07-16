@@ -4,7 +4,21 @@ AI business-process discovery & automation platform (CWI AI brand). Full spec: t
 
 ## Status
 
-Loop 0 (manual scaffold) complete: contracts, KB schema + migration, empty stage files, tenant-safe repository, KBSink, build-session logger, red `tests/test_skeleton.py`. Loop 1 (walking skeleton) not started.
+All council-eligible loops in §6 are complete: Loop 1 (walking skeleton, `pipeline.py`),
+Loop 3 (mapper + 2→3 seam), Loop 4 (analyzer + real ROI/cross-check), Loop 5 (architect,
+list-in/out), Loop 6 (builder + un-bypassable approval gate), Loop 7 (QA revision stage).
+Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` and
+`run-tests.ps1` (pip-audit + full suite) are green.
+
+Remaining before this is a usable product (none of these are council loops):
+- **Loop 2** (thicken interviewer: adaptive follow-ups, full field extraction,
+  pause/resume) — explicitly hand-build only per spec §6, judged by eye, not by a
+  council ACCEPT gate.
+- **API layer** — `api/main.py` doesn't exist yet, only an empty `api/__init__.py`.
+  Nothing is reachable over HTTP.
+- **LLM wiring** — `llm/client.py`'s `complete()` is still `raise NotImplementedError`;
+  no `PROCESSFORGE_LLM_API_KEY` set. Every stage today is deliberately deterministic to
+  avoid it.
 
 ## Build engine
 
