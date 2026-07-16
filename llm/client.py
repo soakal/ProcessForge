@@ -4,6 +4,7 @@ import os
 from enum import Enum
 
 import keyring
+import keyring.errors
 import requests
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -88,9 +89,17 @@ def complete(messages: list[dict], tier: Tier) -> str:
 
     api_key = os.environ.get("PROCESSFORGE_LLM_API_KEY")
     if not api_key:
-        api_key = keyring.get_password("processforge", f"llm_api_key_{provider}")
+        try:
+            api_key = keyring.get_password("processforge", f"llm_api_key_{provider}")
+        except keyring.errors.KeyringError:
+            # No OS credential store configured (e.g. NoKeyringError) — treat
+            # the same as "not found" and fall through to the RuntimeError below.
+            api_key = None
     if not api_key:
-        raise RuntimeError(f"PROCESSFORGE_LLM_API_KEY is not set (needed for tier={tier.value})")
+        raise RuntimeError(
+            f"PROCESSFORGE_LLM_API_KEY is not set and no key found in the keyring "
+            f"(needed for tier={tier.value})"
+        )
 
     if provider == "anthropic":
         return _complete_anthropic(messages, model, api_key)

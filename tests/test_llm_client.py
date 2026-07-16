@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import keyring.errors
 import pytest
 
 from llm.client import Tier, complete
@@ -221,3 +222,22 @@ def test_missing_model_env_raises_for_all_providers(monkeypatch, provider):
 
     with pytest.raises(RuntimeError, match="PROCESSFORGE_MODEL_REASON"):
         complete([{"role": "user", "content": "hi"}], Tier.REASON)
+
+
+def test_keyring_error_on_get_password_treated_as_not_found(monkeypatch):
+    """FIX 7 regression: on a platform with no OS credential store configured,
+    keyring.get_password can raise keyring.errors.NoKeyringError (a KeyringError
+    subclass) instead of returning None. That must be treated the same as "not found"
+    and fall through to the deliberate RuntimeError, not an unhandled traceback."""
+    _set_common_env(monkeypatch, "anthropic", model="claude-x", api_key=None)
+
+    with patch(
+        "llm.client.keyring.get_password",
+        side_effect=keyring.errors.NoKeyringError("no backend configured"),
+    ) as mock_keyring:
+        with pytest.raises(RuntimeError, match="PROCESSFORGE_LLM_API_KEY") as excinfo:
+            complete([{"role": "user", "content": "hi"}], Tier.REASON)
+
+    mock_keyring.assert_called_once_with("processforge", "llm_api_key_anthropic")
+    # Message should mention both places that were checked, not just the env var.
+    assert "keyring" in str(excinfo.value).lower()

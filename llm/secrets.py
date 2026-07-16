@@ -27,6 +27,9 @@ def _cmd_set(provider: str) -> int:
         print(f"error: invalid provider {provider!r} (must be one of: {', '.join(_VALID_PROVIDERS)})", file=sys.stderr)
         return 1
     api_key = getpass.getpass(f"Enter API key for {provider}: ")
+    if not api_key.strip():
+        print("error: no key entered (empty input); nothing stored", file=sys.stderr)
+        return 1
     keyring.set_password(_SERVICE, _username(provider), api_key)
     print(f"{provider}: stored")
     return 0

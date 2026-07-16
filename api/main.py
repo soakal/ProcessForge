@@ -12,11 +12,14 @@ import os
 import time
 from collections import defaultdict
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from contracts.records import ApprovalState
 from pipeline import run_session
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -64,6 +67,11 @@ def _check_rate_limit(client_host: str) -> None:
     except ValueError:
         limit = _DEFAULT_RATE_LIMIT_PER_MINUTE
     window = int(time.time() // 60)
+    # Prune stale windows so the bucket dict doesn't grow without bound on a
+    # long-running server; only the current and immediately-prior window can
+    # still be relevant to the fixed-window scheme used here.
+    for stale_key in [k for k in _rate_limit_buckets if k[1] not in (window, window - 1)]:
+        del _rate_limit_buckets[stale_key]
     key = (client_host, window)
     _rate_limit_buckets[key] += 1
     if _rate_limit_buckets[key] > limit:
@@ -81,15 +89,22 @@ def create_session(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> SessionResponse:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
     expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
     provided_token = ""
     if authorization and authorization.startswith("Bearer "):
         provided_token = authorization[len("Bearer "):]
-    if not expected_token or not hmac.compare_digest(provided_token, expected_token):
+    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
+    # containing non-ASCII characters.
+    if not expected_token or not hmac.compare_digest(
+        provided_token.encode("utf-8", "surrogateescape"),
+        expected_token.encode("utf-8", "surrogateescape"),
+    ):
         raise HTTPException(status_code=401, detail="Not authenticated")
-
-    client_host = request.client.host if request.client else "unknown"
-    _check_rate_limit(client_host)
 
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
     result = run_session(body.business_name, body.tenant, body.answers, db_path)

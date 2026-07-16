@@ -2,6 +2,7 @@
 persisting every record via KBSink. No LLM calls — stages here are deterministic."""
 from __future__ import annotations
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,11 @@ from sinks.kb_sink import KBSink
 from stages import interviewer, mapper, analyzer, architect
 
 _REPO_ROOT = Path(__file__).resolve().parent
+
+# FastAPI runs sync handlers in a threadpool, so concurrent requests can call
+# _migrate() at the same time. Serialize the os.environ mutation + Alembic
+# upgrade so two migrations never race against the same SQLite file.
+_migrate_lock = threading.Lock()
 
 
 class _Ctx:
@@ -44,9 +50,10 @@ class SessionResult:
 
 
 def _migrate(db_path: str) -> None:
-    os.environ["PROCESSFORGE_DB_PATH"] = db_path
-    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
-    command.upgrade(cfg, "head")
+    with _migrate_lock:
+        os.environ["PROCESSFORGE_DB_PATH"] = db_path
+        cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+        command.upgrade(cfg, "head")
 
 
 def run_session(business_name: str, tenant: str, answers: list[str], db_path: str) -> SessionResult:

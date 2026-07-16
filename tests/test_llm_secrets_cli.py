@@ -97,3 +97,29 @@ def test_delete_invalid_provider_rejected_cleanly(capsys):
 def test_set_missing_provider_arg_raises_systemexit_not_traceback():
     with pytest.raises(SystemExit):
         main(["set"])
+
+
+def test_set_empty_key_rejected_cleanly(capsys):
+    """FIX 6 regression: getpass.getpass() returning "" (user hit Enter with no input)
+    must be rejected with a clean error, not stored as-is."""
+    with patch("llm.secrets.getpass.getpass", return_value="") as mock_getpass, \
+            patch("llm.secrets.keyring.set_password") as mock_set:
+        exit_code = main(["set", "anthropic"])
+
+    assert exit_code != 0
+    mock_getpass.assert_called_once()
+    mock_set.assert_not_called()
+    captured = capsys.readouterr()
+    assert "empty" in captured.err.lower()
+
+
+def test_set_whitespace_only_key_rejected_cleanly(capsys):
+    with patch("llm.secrets.getpass.getpass", return_value="   ") as mock_getpass, \
+            patch("llm.secrets.keyring.set_password") as mock_set:
+        exit_code = main(["set", "anthropic"])
+
+    assert exit_code != 0
+    mock_getpass.assert_called_once()
+    mock_set.assert_not_called()
+    captured = capsys.readouterr()
+    assert "empty" in captured.err.lower()
