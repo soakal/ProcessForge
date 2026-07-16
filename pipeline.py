@@ -12,7 +12,7 @@ from alembic.config import Config
 from contracts.records import Business, Session, Task, Opportunity, Recommendation
 from kb.repository import KBRepository
 from sinks.kb_sink import KBSink
-from stages import interviewer, analyzer, architect
+from stages import interviewer, mapper, analyzer, architect
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
@@ -59,7 +59,10 @@ def run_session(business_name: str, tenant: str, answers: list[str], db_path: st
         for task in tasks:
             sink.save(task, ctx)
 
-        opportunities = analyzer.run((None, tasks), ctx)
+        graph = mapper.run(tasks, ctx)
+        sink.save(graph, ctx)
+
+        opportunities = analyzer.run((graph, tasks), ctx)
         opportunity = opportunities[0]
         sink.save(opportunity, ctx)
 
