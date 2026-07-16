@@ -57,6 +57,33 @@ def _migrate(db_path: str) -> None:
         command.upgrade(cfg, "head")
 
 
+def _finish_pipeline(business, session, tasks, repo, sink, ctx) -> SessionResult:
+    # `repo` is unused in this function's body — kept for the caller's convenience/
+    # future use, since a later cycle's multi-turn completion caller will already
+    # have an open `repo` and this keeps the signature forward-compatible.
+    for task in tasks:
+        sink.save(task, ctx)
+
+    graph = mapper.run(tasks, ctx)
+    sink.save(graph, ctx)
+
+    opportunities = analyzer.run((graph, tasks), ctx)
+    for opportunity in opportunities:
+        sink.save(opportunity, ctx)
+
+    recommendations = architect.run(opportunities, ctx)
+    for recommendation in recommendations:
+        sink.save(recommendation, ctx)
+
+    return SessionResult(
+        business=business,
+        session=session,
+        tasks=tasks,
+        opportunities=opportunities,
+        recommendations=recommendations,
+    )
+
+
 def run_session(business_name: str, tenant: str, answers: list[str], db_path: str) -> SessionResult:
     _migrate(db_path)
     repo = KBRepository(db_path)
@@ -72,26 +99,6 @@ def run_session(business_name: str, tenant: str, answers: list[str], db_path: st
 
         transcript = "\n".join(answers)
         tasks = interviewer.run(transcript, ctx)
-        for task in tasks:
-            sink.save(task, ctx)
-
-        graph = mapper.run(tasks, ctx)
-        sink.save(graph, ctx)
-
-        opportunities = analyzer.run((graph, tasks), ctx)
-        for opportunity in opportunities:
-            sink.save(opportunity, ctx)
-
-        recommendations = architect.run(opportunities, ctx)
-        for recommendation in recommendations:
-            sink.save(recommendation, ctx)
-
-        return SessionResult(
-            business=business,
-            session=session,
-            tasks=tasks,
-            opportunities=opportunities,
-            recommendations=recommendations,
-        )
+        return _finish_pipeline(business, session, tasks, repo, sink, ctx)
     finally:
         repo.close()
