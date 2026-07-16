@@ -10,15 +10,30 @@ list-in/out), Loop 6 (builder + un-bypassable approval gate), Loop 7 (QA revisio
 Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` and
 `run-tests.ps1` (pip-audit + full suite) are green.
 
+A minimal API layer also now exists beyond §6's original scope: `api/main.py`
+(`GET /health`, `POST /sessions`), with an explicit **stopgap auth model** —
+single shared bearer token via `PROCESSFORGE_API_TOKEN`, single-tenant-per-
+deployment, compared with `hmac.compare_digest`. `db_path` is always resolved
+server-side from `PROCESSFORGE_DB_PATH`, never accepted from the client
+(path-traversal guard). IP-keyed rate limiting via
+`PROCESSFORGE_RATE_LIMIT_PER_MINUTE` (defensively parsed — falls back to a
+default of 30 on blank/non-integer values). Tested in `tests/test_api.py`
+using the real `httpx` package — do **not** install `httpx2`; despite
+Starlette's own deprecation warning recommending it, `httpx2` is not a real
+project dependency and matches a typosquat pattern (flagged by Claude Code's
+safety classifier). **This auth model is an intentional stopgap, same pattern
+as `llm/client.py`'s stub — replace with real per-tenant auth before any
+multi-tenant deployment.**
+
 Remaining before this is a usable product (none of these are council loops):
 - **Loop 2** (thicken interviewer: adaptive follow-ups, full field extraction,
   pause/resume) — explicitly hand-build only per spec §6, judged by eye, not by a
-  council ACCEPT gate.
-- **API layer** — `api/main.py` doesn't exist yet, only an empty `api/__init__.py`.
-  Nothing is reachable over HTTP.
+  council ACCEPT gate. Also blocked on LLM wiring below for the "adaptive" part.
 - **LLM wiring** — `llm/client.py`'s `complete()` is still `raise NotImplementedError`;
-  no `PROCESSFORGE_LLM_API_KEY` set. Every stage today is deliberately deterministic to
-  avoid it.
+  no `PROCESSFORGE_LLM_API_KEY` set, and no provider/router has been chosen
+  (direct OpenRouter vs. the Hermes proxy at LXC 200). Every stage today is
+  deliberately deterministic to avoid it. Deferred pending Brian's decision.
+- **Real multi-tenant auth** — replace the bearer-token stopgap above.
 
 ## Build engine
 
