@@ -1136,3 +1136,197 @@ def test_delete_business_twice_returns_404_on_second_attempt(monkeypatch, tmp_pa
     second_response = _delete_business(client, business_id, business_id, token, tenant="acme")
 
     assert second_response.status_code == 404
+
+
+def _start_interview(client, token, tenant="acme", business_name="Test Co"):
+    response = client.post(
+        "/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"business_name": business_name, "tenant": tenant},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _answer_interview(client, session_id, answer, token, tenant="acme"):
+    return client.post(
+        f"/interviews/{session_id}/answer",
+        params={"tenant": tenant},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"answer": answer},
+    )
+
+
+def _assert_session_response_shape(body):
+    assert isinstance(body["business_id"], str) and body["business_id"]
+    assert isinstance(body["session_id"], str) and body["session_id"]
+    assert body["task_count"] == 1
+    assert len(body["opportunities"]) == 1
+    opportunity = body["opportunities"][0]
+    assert opportunity["roi_low_hrs"] < opportunity["roi_high_hrs"]
+    assert opportunity["assumptions"]
+    assert len(body["recommendations"]) == 1
+    assert body["recommendations"][0]["approval_state"] == "draft"
+
+
+def test_start_interview_returns_opening_question(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+
+    assert started["business_id"]
+    assert started["session_id"]
+    assert isinstance(started["question"], str) and started["question"]
+
+
+def test_interview_full_flow_completes_after_three_deterministic_answers(monkeypatch, tmp_path):
+    """With PROCESSFORGE_LLM_PROVIDER stripped (tests/conftest.py's autouse fixture),
+    stages.interviewer.next_question always falls back to its deterministic 3-step
+    ladder, keyed off the number of answers given so far: the 3rd answer causes
+    _next_question_deterministic to return None, which completes the interview and
+    must return the same shape /sessions returns."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    first = _answer_interview(
+        client, session_id, "We manually reconcile invoices every week.", token, tenant="acme"
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["session_id"] == session_id
+    assert isinstance(first_body["question"], str) and first_body["question"]
+
+    second = _answer_interview(
+        client, session_id, "It takes about 2 hours each time.", token, tenant="acme"
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["session_id"] == session_id
+    assert isinstance(second_body["question"], str) and second_body["question"]
+
+    third = _answer_interview(
+        client,
+        session_id,
+        "We'd like it automated so no one has to touch a spreadsheet.",
+        token,
+        tenant="acme",
+    )
+    assert third.status_code == 200
+    _assert_session_response_shape(third.json())
+
+
+def test_interview_turn_cap_forces_completion_on_sixth_answer(monkeypatch, tmp_path):
+    """Mock next_question to always want another question, so only the hard
+    _MAX_INTERVIEW_ANSWERS cap (not the deterministic 3-step ladder) can end the
+    interview — confirms the 6th answer forces completion regardless."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    monkeypatch.setattr(
+        "stages.interviewer.next_question", lambda turns, ctx: "Tell me more?"
+    )
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    for i in range(5):
+        response = _answer_interview(client, session_id, f"Answer {i + 1}.", token, tenant="acme")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["session_id"] == session_id
+        assert body["question"] == "Tell me more?"
+
+    sixth = _answer_interview(client, session_id, "Answer 6.", token, tenant="acme")
+    assert sixth.status_code == 200
+    _assert_session_response_shape(sixth.json())
+
+
+def test_answer_on_already_complete_interview_returns_409(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    _answer_interview(client, session_id, "We manually reconcile invoices every week.", token, tenant="acme")
+    _answer_interview(client, session_id, "It takes about 2 hours each time.", token, tenant="acme")
+    completed = _answer_interview(
+        client,
+        session_id,
+        "We'd like it automated so no one has to touch a spreadsheet.",
+        token,
+        tenant="acme",
+    )
+    assert completed.status_code == 200
+
+    fourth = _answer_interview(client, session_id, "One more thing.", token, tenant="acme")
+
+    assert fourth.status_code == 409
+
+
+def test_answer_interview_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    """Real tenant-isolation test: a session started under one tenant must be
+    invisible (404, not 403 — don't leak that it exists) when answered under
+    another tenant."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    response = _answer_interview(client, session_id, "Some answer.", token, tenant="other-tenant")
+
+    assert response.status_code == 404
+
+
+def test_answer_interview_unknown_session_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    response = _answer_interview(client, "does-not-exist", "Some answer.", token, tenant="acme")
+
+    assert response.status_code == 404
+
+
+def test_start_interview_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+
+    response = client.post(
+        "/interviews",
+        json={"business_name": "Test Co", "tenant": "acme"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_answer_interview_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    started = _start_interview(client, token, tenant="acme")
+
+    response = client.post(
+        f"/interviews/{started['session_id']}/answer",
+        params={"tenant": "acme"},
+        json={"answer": "Some answer."},
+    )
+
+    assert response.status_code == 401

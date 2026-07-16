@@ -14,6 +14,7 @@ though requests carry a `tenant` field.
 from __future__ import annotations
 import os
 import time
+import uuid
 from collections import defaultdict
 
 from dotenv import load_dotenv
@@ -22,10 +23,11 @@ from pydantic import BaseModel
 
 from auth.hashing import hash_password, verify_password
 from auth.repository import AuthRepository
-from contracts.records import ApprovalState, Automation, Recommendation
+from contracts.records import ApprovalState, Automation, Business, Recommendation, Session, SessionStatus
 from kb.repository import KBRepository
-from pipeline import _Ctx, _migrate, run_session
-from stages import builder, qa
+from pipeline import _Ctx, _finish_pipeline, _migrate, run_session
+from sinks.kb_sink import KBSink
+from stages import builder, interviewer, qa
 
 load_dotenv()
 
@@ -39,11 +41,30 @@ _rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
 # otherwise reveal whether a username exists from response latency alone.
 _DUMMY_PASSWORD_HASH = hash_password("dummy-placeholder-value")
 
+# Opening question asked by POST /interviews, before any answer has been given.
+_INTERVIEW_OPENER = (
+    "What task would you like ProcessForge to help you think about automating? "
+    "Describe it in your own words."
+)
+# Hard cap on how many answers a multi-turn interview will collect before it is
+# forced to completion, even if stages.interviewer.next_question keeps asking
+# for more — this bounds the interview to a finite number of turns.
+_MAX_INTERVIEW_ANSWERS = 6
+
 
 class SessionRequest(BaseModel):
     business_name: str
     tenant: str
     answers: list[str]
+
+
+class StartInterviewRequest(BaseModel):
+    business_name: str
+    tenant: str
+
+
+class AnswerRequest(BaseModel):
+    answer: str
 
 
 class LoginRequest(BaseModel):
@@ -170,6 +191,115 @@ def create_session(
         opportunities=[OpportunityOut(**o.model_dump()) for o in result.opportunities],
         recommendations=[RecommendationOut(**r.model_dump()) for r in result.recommendations],
     )
+
+
+@app.post("/interviews")
+def start_interview(
+    body: StartInterviewRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, ctx = _open_repo(db_path)
+    try:
+        sink = KBSink()
+        business = Business(id=str(uuid.uuid4()), tenant=body.tenant, name=body.business_name)
+        sink.save(business, ctx)
+
+        # transcript_ref points at the session's own id (turns are stored keyed
+        # by session_id via repo.add_turn/list_turns, not a separate blob).
+        session_id = str(uuid.uuid4())
+        session = Session(
+            id=session_id,
+            business_id=business.id,
+            status=SessionStatus.active,
+            transcript_ref=session_id,
+        )
+        sink.save(session, ctx)
+
+        repo.add_turn(session.id, "question", _INTERVIEW_OPENER)
+
+        return {
+            "business_id": business.id,
+            "session_id": session.id,
+            "question": _INTERVIEW_OPENER,
+        }
+    finally:
+        repo.close()
+
+
+@app.post("/interviews/{session_id}/answer")
+def answer_interview(
+    session_id: str,
+    tenant: str,
+    body: AnswerRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        session_row = repo.get("sessions", session_id, tenant)
+        if session_row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        if session_row["status"] != SessionStatus.active.value:
+            raise HTTPException(status_code=409, detail="interview already complete")
+
+        repo.add_turn(session_id, "answer", body.answer)
+        turns = repo.list_turns(session_id)
+        answer_count = sum(1 for turn in turns if turn["role"] == "answer")
+
+        # Critical: this ctx's session_id must be the REAL session id, not the
+        # empty one _open_repo's ctx carries — otherwise Task.session_id (set
+        # from ctx.session_id by stages.interviewer.run) would persist blank.
+        ctx = _Ctx(repo, session_id=session_id)
+
+        if answer_count >= _MAX_INTERVIEW_ANSWERS:
+            # Cap hit: force completion, skip asking for another answer.
+            question = None
+        else:
+            question = interviewer.next_question(turns, ctx)
+
+        if question is not None:
+            repo.add_turn(session_id, "question", question)
+            return {"session_id": session_id, "question": question}
+
+        # Completion path: either next_question decided there's enough
+        # information, or the answer cap forced it.
+        business_row = repo.get("businesses", session_row["business_id"], tenant)
+        business = Business(**business_row)
+        session = Session(**session_row)
+        session.status = SessionStatus.complete
+
+        sink = KBSink()
+        sink.save(session, ctx)
+
+        transcript = "\n".join(turn["content"] for turn in turns if turn["role"] == "answer")
+        tasks = interviewer.run(transcript, ctx)
+        result = _finish_pipeline(business, session, tasks, repo, sink, ctx)
+
+        return SessionResponse(
+            business_id=result.business.id,
+            session_id=result.session.id,
+            task_count=len(result.tasks),
+            opportunities=[OpportunityOut(**o.model_dump()) for o in result.opportunities],
+            recommendations=[RecommendationOut(**r.model_dump()) for r in result.recommendations],
+        ).model_dump(mode="json")
+    finally:
+        repo.close()
 
 
 @app.get("/recommendations/{recommendation_id}", response_model=RecommendationOut)
