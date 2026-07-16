@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import sqlite3
 import time
 
 from fastapi.testclient import TestClient
@@ -346,6 +347,197 @@ def test_approve_recommendation_missing_token_rejected(monkeypatch, tmp_path):
     response = client.post(
         f"/recommendations/{recommendation['id']}/approve",
         params={"tenant": "acme"},
+    )
+
+    assert response.status_code == 401
+
+
+def _approve_recommendation(client, recommendation_id, tenant="acme"):
+    response = client.post(
+        f"/recommendations/{recommendation_id}/approve",
+        params={"tenant": tenant},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_build_automation_on_unapproved_recommendation_returns_409(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 409
+    assert "approved" in response.json()["detail"]
+
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM automations WHERE recommendation_id = ?",
+            (recommendation["id"],),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0
+
+
+def test_build_automation_on_approved_recommendation_returns_200(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], tenant="acme")
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendation_id"] == recommendation["id"]
+    assert body["spec"]
+    assert body["blast_radius"]
+    assert body["rollback"]
+    assert body["approval_state"] == "draft"
+
+
+def test_build_automation_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        "/recommendations/does-not-exist/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_build_automation_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], tenant="acme")
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_build_automation_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_submit_automation_feedback_happy_path(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    feedback = "The rollback step is missing a notification to the on-call engineer."
+    feedback_response = client.post(
+        f"/automations/{automation['id']}/feedback",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+        json={"feedback": feedback},
+    )
+
+    assert feedback_response.status_code == 200
+    revised = feedback_response.json()
+    assert revised["id"] != automation["id"]
+    assert revised["recommendation_id"] == automation["recommendation_id"]
+    assert revised["spec"]["feedback"] == feedback
+    assert feedback in revised["spec"]["revision_notes"]
+
+
+def test_submit_automation_feedback_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        "/automations/does-not-exist/feedback",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+        json={"feedback": "Needs more detail."},
+    )
+
+    assert response.status_code == 404
+
+
+def test_submit_automation_feedback_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    response = client.post(
+        f"/automations/{automation['id']}/feedback",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": "Bearer secret-token"},
+        json={"feedback": "Needs more detail."},
+    )
+
+    assert response.status_code == 404
+
+
+def test_submit_automation_feedback_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    response = client.post(
+        f"/automations/{automation['id']}/feedback",
+        params={"tenant": "acme"},
+        json={"feedback": "Needs more detail."},
     )
 
     assert response.status_code == 401
