@@ -33,10 +33,25 @@ controls the local Ollama endpoint (default `http://localhost:11434`). Tested
 entirely with mocked `requests.post` in `tests/test_llm_client.py` — **no real
 network call or API key was ever used to build or test this**, and
 `PROCESSFORGE_LLM_PROVIDER`/`PROCESSFORGE_LLM_API_KEY` still ship blank in
-`.env.example`, so the feature stays inert until Brian actually configures a
-provider + key. `complete()` is NOT wired into any stage yet — every stage
-(`interviewer`/`mapper`/`analyzer`/`architect`/`builder`/`qa`) remains
-deliberately deterministic and never calls it.
+`.env.example`, so the feature stays inert until a provider + key is
+configured. Brian has since configured `openrouter` on his machine (key in
+Windows Credential Manager, not in any repo file).
+
+`complete()` is now wired into **one** stage: `stages/interviewer.py` tries an
+LLM-based extraction first (`Tier.EXTRACT`), falling back to the original
+deterministic regex extraction on ANY failure (missing provider config,
+network error, malformed response, or a contract-invalid field). The
+untrusted transcript is delimited (`<transcript>...</transcript>`) and the
+delimiter is neutralized inside user content before interpolation, so an
+attacker's answer can't forge a closing tag and break out of the data block —
+this closed two real gaps found across two review rounds (unescaped
+delimiter, then a whitespace-variant bypass of the escaping). `mapper`/
+`analyzer`/`architect`/`builder`/`qa` remain deliberately deterministic and
+never call `complete()`. This was NOT run through the normal automated
+council ACCEPT gate for its "does the extraction feel right" dimension —
+per §6, only a human can judge that; everything else (fallback correctness,
+delimiter safety) WAS adversarially tested and reviewed, with zero real LLM
+calls made during the entire build.
 
 `PROCESSFORGE_LLM_API_KEY` now has a secure local fallback: if the env var is
 unset, `complete()` (for `anthropic`/`openrouter` only — `ollama` needs no key)
@@ -49,15 +64,13 @@ server/container deployment needs no change. All keyring interactions in
 ever touches the real Credential Manager.
 
 Remaining before this is a usable product (none of these are council loops):
-- **Choose + configure a provider** — set `PROCESSFORGE_LLM_PROVIDER`, then
-  either set `PROCESSFORGE_LLM_API_KEY` or run
-  `python -m llm.secrets set anthropic`/`openrouter` (or just run Ollama
-  locally, no key needed) to actually activate LLM calls. Purely a config
-  decision now — no code work required to switch providers.
-- **Loop 2** (thicken interviewer: adaptive follow-ups, full field extraction,
-  pause/resume) — explicitly hand-build only per spec §6, judged by eye, not by a
-  council ACCEPT gate. Needs a provider configured above before it can do
-  anything LLM-based; still deferred.
+- **Loop 2, the real remaining part** (adaptive follow-up QUESTIONS, a genuine
+  back-and-forth conversation, pause/resume across multiple turns) — a single
+  LLM-assisted extraction call from one batch of answers (done above) is not
+  the same thing as a conversational interview. The API shape is still
+  single-shot (`POST /sessions` takes all answers at once); a real multi-turn
+  flow needs new session state handling and API surface. Explicitly
+  hand-build/judged-by-eye per spec §6, not a council ACCEPT gate.
 - **Real multi-tenant auth** — replace the API layer's bearer-token stopgap
   (see above).
 

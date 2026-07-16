@@ -26,18 +26,22 @@ Nothing is ever built or run automatically. A human always has to approve a
 recommendation before anything is created.
 
 **Honesty check on today's behavior:** right now, ProcessForge does *not* have a
-back-and-forth conversation with you. It only looks at the first line of what you
-typed (as the description of the task) and the last line (as the outcome you want).
-Everything in between is only scanned for those time/frequency clues. Each time you
-use it, you get back exactly one task, one estimate, and one draft recommendation —
-not a full interview yet. That smarter, more conversational version is planned but
-not built yet (see "What's coming next" below).
+back-and-forth conversation with you — you still type everything in one go, and you
+get back exactly one task, one estimate, and one draft recommendation each time. A
+real multi-turn interview (where it asks you follow-up questions) is planned but not
+built yet (see "What's coming next" below).
 
-Also: even if you set up a connection to an AI service (see Setup, step 3), that
-doesn't change any of the above yet. Right now, ProcessForge doesn't actually call
-an AI to do any of this — it does it all with straightforward, predictable rules.
-Setting up an AI connection now just gets the wiring ready so a future update can
-use it. It changes nothing about what you get back today.
+**If you've connected an AI service** (see Setup, step 2), ProcessForge now uses it
+to read what you typed and figure out the task/timing/frequency details — a step up
+from simple phrase-matching, since it can understand context rather than just
+spotting exact words like "daily." **If you haven't connected an AI service, or the
+AI call fails for any reason** (no connection configured, a network hiccup, or the
+AI's answer doesn't make sense), ProcessForge automatically falls back to its
+original, predictable rule-based approach: it looks at the first line of what you
+typed as the task description, the last line as the outcome you want, and scans
+everything in between for time/frequency clues. You always get a usable result
+either way — the fallback exists specifically so a flaky AI connection never breaks
+a session.
 
 ---
 
@@ -98,10 +102,13 @@ only ones you truly need right now; the third is optional but worth knowing abou
 
 Everything else in `.env` (the lines starting with `PROCESSFORGE_LLM_`,
 `PROCESSFORGE_MODEL_`, and `PROCESSFORGE_OLLAMA_HOST`) is about connecting an AI
-service. You can leave those blank for now — as explained above, nothing calls an AI
-yet, so those settings don't affect anything you'll see today. `BUILD_LOG_URL` and
-`BUILD_LOG_TOKEN` are only used by the developers building ProcessForge itself; you
-can leave those blank too.
+service. This is optional — you can leave those blank and ProcessForge still works,
+using its predictable rule-based fallback for every session (see the honesty check
+above). If you do want the smarter version, see `PROCESSFORGE_LLM_PROVIDER` in
+`.env.example` for the three supported options and `python -m llm.secrets set
+<provider>` for storing the key securely (never put a real key directly in `.env`).
+`BUILD_LOG_URL` and `BUILD_LOG_TOKEN` are only used by the developers building
+ProcessForge itself; you can leave those blank too.
 
 ### 3. Check that everything is set up correctly
 
@@ -177,10 +184,11 @@ Here's what each part means:
 - **`business_name`** — the name of the business this task belongs to.
 - **`tenant`** — which client or company this is for. One ProcessForge setup can be
   used for many different clients/companies, and this tells it which one you mean.
-- **`answers`** — a list of things you type describing the task. Remember: only the
-  first item is used as the task description, and only the last item is used as the
-  outcome you want — the ones in between are just scanned for time/frequency clues,
-  as explained above.
+- **`answers`** — a list of things you type describing the task. If you've connected
+  an AI service, it reads all of this to figure out the details. If not (or if the AI
+  call fails), ProcessForge falls back to only using the first item as the task
+  description and the last item as the outcome you want, scanning what's in between
+  for time/frequency clues, as explained above.
 
 ### What you get back
 
@@ -201,15 +209,13 @@ ProcessForge replies with:
 
 These are known, planned improvements — not promises of a specific date:
 
-- **A real back-and-forth interview.** Right now ProcessForge only reads the first
-  and last things you type. A future version will actually ask you follow-up
-  questions instead of just picking apart what you type in one go.
+- **A real back-and-forth interview.** Right now, even with an AI service connected,
+  you still type everything in one go and get one result back. A future version will
+  actually ask you follow-up questions across multiple turns, instead of processing
+  everything you type at once.
 - **A real login system.** Right now everyone who uses a given ProcessForge setup
   shares one single password. A future version will give each person or client
   their own separate login.
-- **Actually connecting the AI service.** Right now, setting up an AI provider (see
-  Setup, step 2) doesn't change any behavior — ProcessForge doesn't call it yet. A
-  future version will use it for smarter task understanding.
 
 ---
 
