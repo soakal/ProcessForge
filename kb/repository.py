@@ -153,6 +153,34 @@ class KBRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    # -- session_turns: caller already knows the session, so these bypass
+    # _resolve_tenant entirely, mirroring log_approval_change/list_audit_log. --
+    def add_turn(self, session_id: str, role: str, content: str) -> None:
+        turn_index = self._conn.execute(
+            "SELECT COUNT(*) FROM session_turns WHERE session_id = ?", (session_id,)
+        ).fetchone()[0]
+        self._conn.execute(
+            "INSERT INTO session_turns (id, session_id, turn_index, role, content, ts) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                session_id,
+                turn_index,
+                role,
+                content,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self._conn.commit()
+
+    def list_turns(self, session_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, session_id, turn_index, role, content, ts "
+            "FROM session_turns WHERE session_id = ? ORDER BY turn_index",
+            (session_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     # -- delete_business: atomic cascade delete, bypasses _resolve_tenant like the
     # audit_log methods above (caller already knows the tenant). --
     def delete_business(self, business_id: str, tenant: str) -> dict | None:
