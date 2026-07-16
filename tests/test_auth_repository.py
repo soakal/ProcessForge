@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import pipeline
-from auth.repository import AuthRepository, DuplicateOperatorError
+from auth.repository import AuthRepository, DuplicateOperatorError, OperatorNotFoundError
 
 
 @pytest.fixture
@@ -88,6 +88,40 @@ def test_delete_token_invalidates_it_and_is_idempotent(repo):
     # Deleting an already-deleted (or never-existent) token must not raise.
     repo.delete_token(token)
     repo.delete_token("never-existed-either")
+
+
+def test_delete_operator_removes_it(repo):
+    repo.create_operator("henry", "henry-password")
+
+    repo.delete_operator("henry")
+
+    assert repo.get_operator("henry") is None
+
+
+def test_delete_operator_nonexistent_raises_operator_not_found_error(repo):
+    with pytest.raises(OperatorNotFoundError):
+        repo.delete_operator("nobody")
+
+
+def test_delete_operator_also_removes_its_tokens(repo, tmp_path):
+    operator_id = repo.create_operator("ivy", "ivy-password")
+    token = repo.create_token(operator_id)
+
+    assert repo.get_operator_by_token(token) is not None
+
+    repo.delete_operator("ivy")
+
+    assert repo.get_operator_by_token(token) is None
+
+    conn = sqlite3.connect(str(tmp_path / "pf.db"))
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM auth_tokens WHERE operator_id = ?", (operator_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert count == 0
 
 
 def test_list_operators_excludes_password_hash(repo):

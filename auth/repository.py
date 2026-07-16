@@ -21,6 +21,10 @@ class DuplicateOperatorError(ValueError):
     """Raised when create_operator() is called with a username that already exists."""
 
 
+class OperatorNotFoundError(ValueError):
+    """Raised when delete_operator() is called with a username that doesn't exist."""
+
+
 class AuthRepository:
     def __init__(self, db_path: str):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -85,6 +89,17 @@ class AuthRepository:
 
     def delete_token(self, token: str) -> None:
         self._conn.execute("DELETE FROM auth_tokens WHERE token = ?", (token,))
+        self._conn.commit()
+
+    def delete_operator(self, username: str) -> None:
+        operator = self.get_operator(username)
+        if operator is None:
+            raise OperatorNotFoundError(f"operator username not found: {username!r}")
+        # No ON DELETE CASCADE on auth_tokens.operator_id (see migration
+        # 3a99fe629a01_auth_tables.py) — delete the operator's tokens first
+        # so no auth_tokens row is left referencing a deleted operator_id.
+        self._conn.execute("DELETE FROM auth_tokens WHERE operator_id = ?", (operator["id"],))
+        self._conn.execute("DELETE FROM operators WHERE username = ?", (username,))
         self._conn.commit()
 
     def list_operators(self) -> list[dict]:
