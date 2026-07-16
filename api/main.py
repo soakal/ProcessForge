@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
+from auth.hashing import hash_password, verify_password
+from auth.repository import AuthRepository
 from contracts.records import ApprovalState, Automation, Recommendation
 from kb.repository import KBRepository
 from pipeline import _Ctx, _migrate, run_session
@@ -27,12 +29,22 @@ app = FastAPI()
 
 _DEFAULT_RATE_LIMIT_PER_MINUTE = 30
 _rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
+# A real, correctly-formatted (but unusable) password hash. Verified against on
+# every /auth/login call for an unknown username so that a real PBKDF2
+# computation runs either way — this blunts a timing side-channel that could
+# otherwise reveal whether a username exists from response latency alone.
+_DUMMY_PASSWORD_HASH = hash_password("dummy-placeholder-value")
 
 
 class SessionRequest(BaseModel):
     business_name: str
     tenant: str
     answers: list[str]
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 class OpportunityOut(BaseModel):
@@ -299,5 +311,59 @@ def submit_automation_feedback(
         revised = qa.run((automation, body.feedback), ctx)
         repo.put("automations", revised.model_dump(mode="json"))
         return AutomationOut(**revised.model_dump())
+    finally:
+        repo.close()
+
+
+@app.post("/auth/login")
+def login(body: LoginRequest, request: Request) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. credential brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        operator = repo.get_operator(body.username)
+        if operator is not None:
+            valid = verify_password(body.password, operator["password_hash"])
+        else:
+            # Unknown username: still run a real password verification against a
+            # dummy hash (see _DUMMY_PASSWORD_HASH) so the response takes roughly
+            # the same time either way, then fail the same as a wrong password.
+            verify_password(body.password, _DUMMY_PASSWORD_HASH)
+            valid = False
+        if not valid:
+            # Identical status/detail for "unknown username" and "wrong password" —
+            # don't leak which one it was.
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        token = repo.create_token(operator["id"])
+        return {"token": token}
+    finally:
+        repo.close()
+
+
+@app.post("/auth/logout")
+def logout(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    provided_token = ""
+    if authorization and authorization.startswith("Bearer "):
+        provided_token = authorization[len("Bearer "):]
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        operator = repo.get_operator_by_token(provided_token)
+        if operator is None:
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        repo.delete_token(provided_token)
+        return {"status": "logged out"}
     finally:
         repo.close()

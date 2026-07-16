@@ -8,11 +8,25 @@ import time
 
 from fastapi.testclient import TestClient
 
+from auth.repository import AuthRepository
+from pipeline import _migrate
+
 
 def _client():
     from api.main import app
 
     return TestClient(app)
+
+
+def _seed_operator(db_path, username="alice", password="correct-horse-battery"):
+    """Migrate the schema and create an operator directly via AuthRepository,
+    mirroring this file's existing direct-repo seeding style."""
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        repo.create_operator(username, password)
+    finally:
+        repo.close()
 
 
 def _set_env(monkeypatch, tmp_path, token="secret-token", rate_limit=None):
@@ -541,3 +555,136 @@ def test_submit_automation_feedback_missing_token_rejected(monkeypatch, tmp_path
     )
 
     assert response.status_code == 401
+
+
+def test_login_correct_credentials_returns_token(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    _seed_operator(db_path, username="alice", password="correct-horse-battery")
+    client = _client()
+
+    response = client.post(
+        "/auth/login",
+        json={"username": "alice", "password": "correct-horse-battery"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body["token"], str)
+    assert body["token"]
+
+
+def test_login_wrong_password_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    _seed_operator(db_path, username="alice", password="correct-horse-battery")
+    client = _client()
+
+    response = client.post(
+        "/auth/login",
+        json={"username": "alice", "password": "wrong-password"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_login_unknown_username_matches_wrong_password_response(monkeypatch, tmp_path):
+    """Unknown username and wrong password must be indistinguishable to the caller —
+    identical status code and identical response body, not just "both happen to be 401"."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    _seed_operator(db_path, username="alice", password="correct-horse-battery")
+    client = _client()
+
+    wrong_password_response = client.post(
+        "/auth/login",
+        json={"username": "alice", "password": "wrong-password"},
+    )
+    unknown_username_response = client.post(
+        "/auth/login",
+        json={"username": "does-not-exist", "password": "wrong-password"},
+    )
+
+    assert wrong_password_response.status_code == 401
+    assert unknown_username_response.status_code == 401
+    assert wrong_password_response.status_code == unknown_username_response.status_code
+    assert wrong_password_response.json() == unknown_username_response.json()
+
+
+def test_login_rate_limited(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=2)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    _seed_operator(db_path, username="alice", password="correct-horse-battery")
+    client = _client()
+
+    statuses = [
+        client.post(
+            "/auth/login",
+            json={"username": "alice", "password": "wrong-password"},
+        ).status_code
+        for _ in range(5)
+    ]
+
+    assert 429 in statuses
+
+
+def test_logout_valid_token_then_same_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    _seed_operator(db_path, username="alice", password="correct-horse-battery")
+    client = _client()
+
+    login_response = client.post(
+        "/auth/login",
+        json={"username": "alice", "password": "correct-horse-battery"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["token"]
+
+    logout_response = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert logout_response.status_code == 200
+
+    second_logout_response = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert second_logout_response.status_code == 401
+
+
+def test_logout_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+
+    response = client.post("/auth/logout")
+
+    assert response.status_code == 401
+
+
+def test_logout_invalid_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+
+    response = client.post(
+        "/auth/logout",
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_logout_rate_limited(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=2)
+    client = _client()
+
+    statuses = [
+        client.post(
+            "/auth/logout",
+            headers={"Authorization": "Bearer not-a-real-token"},
+        ).status_code
+        for _ in range(5)
+    ]
+
+    assert 429 in statuses
