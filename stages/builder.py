@@ -1,5 +1,6 @@
 """Seam: Recommendation -> Automation. The approval gate is the hard boundary (see §7/§9)."""
 from __future__ import annotations
+import uuid
 from contracts.records import ApprovalState, Recommendation, Automation
 
 
@@ -17,4 +18,24 @@ def run(inp: Recommendation, ctx) -> Automation:
             f"Builder refuses: Recommendation {inp.id} is not approved "
             f"(approval_state={inp.approval_state.value})"
         )
-    raise NotImplementedError
+    spec = {
+        "kind": "declarative_automation",
+        "recommendation_id": inp.id,
+        "opportunity_id": inp.opportunity_id,
+        "summary": inp.summary,
+        "steps": [
+            {"action": "review", "detail": inp.summary},
+        ],
+    }
+    automation = Automation(
+        id=str(uuid.uuid4()),
+        recommendation_id=inp.id,
+        spec=spec,
+        blast_radius=(
+            f"Affects the workflow tied to opportunity {inp.opportunity_id}; "
+            "no external systems are touched until this Automation is separately approved."
+        ),
+        rollback="Delete or disable this Automation record; no changes are applied automatically.",
+    )
+    Automation.model_validate(automation.model_dump())
+    return automation
