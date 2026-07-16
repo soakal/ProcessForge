@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 
+import keyring
 import requests
 
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -86,6 +87,8 @@ def complete(messages: list[dict], tier: Tier) -> str:
         return _complete_ollama(messages, model)
 
     api_key = os.environ.get("PROCESSFORGE_LLM_API_KEY")
+    if not api_key:
+        api_key = keyring.get_password("processforge", f"llm_api_key_{provider}")
     if not api_key:
         raise RuntimeError(f"PROCESSFORGE_LLM_API_KEY is not set (needed for tier={tier.value})")
 
