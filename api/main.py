@@ -16,9 +16,12 @@ import os
 import time
 import uuid
 from collections import defaultdict
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from auth.hashing import hash_password, verify_password
@@ -32,6 +35,11 @@ from stages import builder, interviewer, qa
 load_dotenv()
 
 app = FastAPI()
+
+# api/main.py lives in api/; web/ is a sibling of api/ at the repo root.
+_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+app.mount("/ui/static", StaticFiles(directory=_WEB_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=_WEB_DIR / "templates")
 
 _DEFAULT_RATE_LIMIT_PER_MINUTE = 30
 _rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
@@ -167,6 +175,12 @@ def _authenticate(authorization: str | None, db_path: str) -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ui/login")
+def ui_login(request: Request):
+    # No auth required — this IS the login page.
+    return templates.TemplateResponse(request, "login.html")
 
 
 @app.post("/sessions", response_model=SessionResponse)

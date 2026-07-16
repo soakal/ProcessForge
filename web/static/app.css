@@ -1,0 +1,120 @@
+/* ProcessForge UI — minimal utility stylesheet, no framework. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #1a1a1a;
+  background: #f7f7f8;
+}
+
+a {
+  color: #2454ff;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Nav bar (base.html) */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem 1.5rem;
+  background: #1a1a2e;
+}
+
+.nav a,
+.nav button.link {
+  color: #f0f0f5;
+  font-size: 0.95rem;
+}
+
+.nav button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.nav .spacer {
+  flex: 1;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* Forms */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 320px;
+}
+
+label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="password"] {
+  padding: 0.5rem 0.6rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+button {
+  padding: 0.55rem 0.9rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 4px;
+  background: #2454ff;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1c3fd6;
+}
+
+/* Error message */
+.error-message {
+  color: #b3261e;
+  font-size: 0.9rem;
+  min-height: 1.2em;
+}
+
+.error-message:empty {
+  display: none;
+}
+
+/* Tables (reused by later pages, e.g. audit log) */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #ddd;
+  font-size: 0.9rem;
+}
+
+th {
+  background: #eceef2;
+  font-weight: 600;
+}

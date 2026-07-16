@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log In — ProcessForge</title>
+  <link rel="stylesheet" href="/ui/static/app.css">
+</head>
+<body>
+  <main>
+    <h1>ProcessForge</h1>
+    <form id="login-form">
+      <div>
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" required>
+      </div>
+      <div>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="error-message"></div>
+      <button type="submit">Log In</button>
+    </form>
+  </main>
+  <script src="/ui/static/app.js"></script>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorBox = document.getElementById("login-error");
+      errorBox.textContent = "";
+
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      let response;
+      try {
+        response = await fetch("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+      } catch (err) {
+        errorBox.textContent = "Could not reach the server. Please try again.";
+        return;
+      }
+
+      if (!response.ok) {
+        // Deliberately generic: mirrors the API's own username-enumeration
+        // blunting, so the UI never reveals whether the username or the
+        // password was wrong.
+        errorBox.textContent = "Invalid username or password.";
+        return;
+      }
+
+      const data = await response.json();
+      localStorage.setItem("pf_token", data.token);
+      localStorage.setItem("pf_username", username);
+      window.location.href = "/ui";
+    });
+  </script>
+</body>
+</html>
