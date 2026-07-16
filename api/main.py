@@ -16,8 +16,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from contracts.records import ApprovalState
-from pipeline import run_session
+from contracts.records import ApprovalState, Recommendation
+from kb.repository import KBRepository
+from pipeline import _Ctx, _migrate, run_session
 
 load_dotenv()
 
@@ -51,6 +52,15 @@ class RecommendationOut(BaseModel):
     approval_state: ApprovalState
 
 
+class AutomationOut(BaseModel):
+    id: str
+    recommendation_id: str
+    spec: dict
+    blast_radius: str
+    rollback: str
+    approval_state: ApprovalState
+
+
 class SessionResponse(BaseModel):
     business_id: str
     session_id: str
@@ -76,6 +86,15 @@ def _check_rate_limit(client_host: str) -> None:
     _rate_limit_buckets[key] += 1
     if _rate_limit_buckets[key] > limit:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+def _open_repo(db_path: str) -> tuple[KBRepository, _Ctx]:
+    """Migrate + open a repo/ctx pair, mirroring pipeline.run_session's setup.
+    Callers own cleanup: `repo.close()` in a `finally` block."""
+    _migrate(db_path)
+    repo = KBRepository(db_path)
+    ctx = _Ctx(repo, session_id="")
+    return repo, ctx
 
 
 @app.get("/health")
@@ -116,3 +135,79 @@ def create_session(
         opportunities=[OpportunityOut(**o.model_dump()) for o in result.opportunities],
         recommendations=[RecommendationOut(**r.model_dump()) for r in result.recommendations],
     )
+
+
+@app.get("/recommendations/{recommendation_id}", response_model=RecommendationOut)
+def get_recommendation(
+    recommendation_id: str,
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> RecommendationOut:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
+    provided_token = ""
+    if authorization and authorization.startswith("Bearer "):
+        provided_token = authorization[len("Bearer "):]
+    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
+    # containing non-ASCII characters.
+    if not expected_token or not hmac.compare_digest(
+        provided_token.encode("utf-8", "surrogateescape"),
+        expected_token.encode("utf-8", "surrogateescape"),
+    ):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    repo, _ctx = _open_repo(db_path)
+    try:
+        row = repo.get("recommendations", recommendation_id, tenant)
+        if row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        recommendation = Recommendation(**row)
+        return RecommendationOut(**recommendation.model_dump())
+    finally:
+        repo.close()
+
+
+@app.post("/recommendations/{recommendation_id}/approve", response_model=RecommendationOut)
+def approve_recommendation(
+    recommendation_id: str,
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> RecommendationOut:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    expected_token = os.environ.get("PROCESSFORGE_API_TOKEN", "")
+    provided_token = ""
+    if authorization and authorization.startswith("Bearer "):
+        provided_token = authorization[len("Bearer "):]
+    # Encode to bytes first: hmac.compare_digest raises TypeError on str inputs
+    # containing non-ASCII characters.
+    if not expected_token or not hmac.compare_digest(
+        provided_token.encode("utf-8", "surrogateescape"),
+        expected_token.encode("utf-8", "surrogateescape"),
+    ):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    repo, _ctx = _open_repo(db_path)
+    try:
+        row = repo.get("recommendations", recommendation_id, tenant)
+        if row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        recommendation = Recommendation(**row)
+        recommendation.approval_state = ApprovalState.approved
+        repo.put("recommendations", recommendation.model_dump(mode="json"))
+        return RecommendationOut(**recommendation.model_dump())
+    finally:
+        repo.close()

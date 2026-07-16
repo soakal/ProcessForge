@@ -21,6 +21,26 @@ def _set_env(monkeypatch, tmp_path, token="secret-token", rate_limit=None):
         monkeypatch.setenv("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", str(rate_limit))
 
 
+def _create_recommendation(client, tenant="acme"):
+    """Seed a real, persisted Business/Task/Opportunity/Recommendation chain via
+    POST /sessions and return the first recommendation from the response."""
+    response = client.post(
+        "/sessions",
+        headers={"Authorization": "Bearer secret-token"},
+        json={
+            "business_name": "Test Co",
+            "tenant": tenant,
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["recommendations"][0]
+
+
 def test_health_unauthenticated(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path)
     client = _client()
@@ -216,3 +236,116 @@ def test_check_rate_limit_prunes_stale_window_entries(monkeypatch):
 
     assert ("1.2.3.4", stale_window) not in _rate_limit_buckets
     assert all(k[1] in (current_window, current_window - 1) for k in _rate_limit_buckets)
+
+
+def test_get_recommendation_happy_path(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == recommendation["id"]
+    assert body["opportunity_id"] == recommendation["opportunity_id"]
+    assert body["summary"] == recommendation["summary"]
+    assert body["approval_state"] == "draft"
+
+
+def test_get_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    _create_recommendation(client, tenant="acme")
+
+    response = client.get(
+        "/recommendations/does-not-exist",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_get_recommendation_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    """Real tenant-isolation test: a valid id under one tenant must be invisible
+    (404, not 403 — don't leak that the id exists) when queried under another."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    approve_response = client.post(
+        f"/recommendations/{recommendation['id']}/approve",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert approve_response.status_code == 200
+    assert approve_response.json()["approval_state"] == "approved"
+
+    get_response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert get_response.status_code == 200
+    assert get_response.json()["approval_state"] == "approved"
+
+
+def test_approve_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        "/recommendations/does-not-exist/approve",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_get_recommendation_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_approve_recommendation_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+    recommendation = _create_recommendation(client, tenant="acme")
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/approve",
+        params={"tenant": "acme"},
+    )
+
+    assert response.status_code == 401
