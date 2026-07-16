@@ -25,15 +25,29 @@ safety classifier). **This auth model is an intentional stopgap, same pattern
 as `llm/client.py`'s stub — replace with real per-tenant auth before any
 multi-tenant deployment.**
 
+`llm/client.py`'s `complete()` is now fully implemented for **three** providers —
+Anthropic direct, OpenRouter, and Ollama (local) — selected at runtime via
+`PROCESSFORGE_LLM_PROVIDER` (`anthropic`|`openrouter`|`ollama`), all via the
+already-pinned `requests` library (no SDK dependency added). `PROCESSFORGE_OLLAMA_HOST`
+controls the local Ollama endpoint (default `http://localhost:11434`). Tested
+entirely with mocked `requests.post` in `tests/test_llm_client.py` — **no real
+network call or API key was ever used to build or test this**, and
+`PROCESSFORGE_LLM_PROVIDER`/`PROCESSFORGE_LLM_API_KEY` still ship blank in
+`.env.example`, so the feature stays inert until Brian actually configures a
+provider + key. `complete()` is NOT wired into any stage yet — every stage
+(`interviewer`/`mapper`/`analyzer`/`architect`/`builder`/`qa`) remains
+deliberately deterministic and never calls it.
+
 Remaining before this is a usable product (none of these are council loops):
+- **Choose + configure a provider** — set `PROCESSFORGE_LLM_PROVIDER` and
+  `PROCESSFORGE_LLM_API_KEY` (or run Ollama locally) to actually activate LLM
+  calls. Purely a config decision now — no code work required to switch.
 - **Loop 2** (thicken interviewer: adaptive follow-ups, full field extraction,
   pause/resume) — explicitly hand-build only per spec §6, judged by eye, not by a
-  council ACCEPT gate. Also blocked on LLM wiring below for the "adaptive" part.
-- **LLM wiring** — `llm/client.py`'s `complete()` is still `raise NotImplementedError`;
-  no `PROCESSFORGE_LLM_API_KEY` set, and no provider/router has been chosen
-  (direct OpenRouter vs. the Hermes proxy at LXC 200). Every stage today is
-  deliberately deterministic to avoid it. Deferred pending Brian's decision.
-- **Real multi-tenant auth** — replace the bearer-token stopgap above.
+  council ACCEPT gate. Needs a provider configured above before it can do
+  anything LLM-based; still deferred.
+- **Real multi-tenant auth** — replace the API layer's bearer-token stopgap
+  (see above).
 
 ## Build engine
 
