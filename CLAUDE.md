@@ -13,7 +13,8 @@ Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` 
 A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 (`GET /health`, `POST /sessions`, `GET /recommendations/{id}`, `POST
 /recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
-/automations/{id}/feedback`). All 6 pipeline stages are now reachable through
+/automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`).
+All 6 pipeline stages are now reachable through
 the live API — `build` calls `stages/builder.py` (returns `409` via its
 `PermissionError` if the recommendation isn't `approved` yet, never a raw
 500), `feedback` calls `stages/qa.py` and persists the resulting revision as
@@ -110,6 +111,34 @@ closed by proof, not inference — a full run with `requests.post` rigged to
 raise on any call passed with zero failures. **Do not remove or narrow this
 fixture without re-proving zero network egress the same way.**
 
+**Both remaining spec §9 requirements are now built.** An append-only
+`audit_log` table (new Alembic migration, DB-enforced via `BEFORE
+UPDATE`/`BEFORE DELETE` triggers that `RAISE(ABORT)` — not just a
+convention) records every approval-state change (`POST
+/recommendations/{id}/approve` writes one entry: operator, tenant, old/new
+state; a redundant re-approve doesn't double-log). Readable via `GET
+/audit-log?tenant=<tenant>` (optional `record_id` filter), tenant-scoped
+like everything else. `KBRepository.log_approval_change`/`list_audit_log`
+deliberately bypass the generic tenant-resolving `get`/`put` machinery —
+the caller already knows the tenant, so that machinery doesn't fit.
+
+`POST /businesses/{id}/delete` (right-to-delete): requires `tenant` +
+a body `{"confirm_business_id": "<repeat the business_id>"}` that must
+match EXACTLY (checked before any DB access at all — a mismatch can't
+even read the DB, let alone write to it). `KBRepository.delete_business`
+gathers the full child set (sessions → tasks/workflow_graphs →
+opportunities via `json_each(task_ids)` intersect → recommendations →
+automations) and deletes everything in one atomic transaction, FK-safe
+order (children first), all-or-nothing. Deliberately does **not** purge
+`audit_log` entries — the append-only trigger correctly blocks this, and
+an audit trail outliving the thing it audited is the intended compliance
+behavior (like a bank not shredding transaction history when an account
+closes), not a bug to route around. Same tenant-isolation-via-404 pattern
+as every other endpoint. Adversarially reviewed across 4 cycles — the
+`json_each` query, FK ordering, and transaction atomicity were each
+independently traced, and the confirmation gate's "can never reach the DB
+on mismatch" property was verified structurally, not just by testing.
+
 Remaining before this is a usable product (none of these are council loops):
 - **Loop 2, the real remaining part** (adaptive follow-up QUESTIONS, a genuine
   back-and-forth conversation, pause/resume across multiple turns) — a single
@@ -117,10 +146,8 @@ Remaining before this is a usable product (none of these are council loops):
   the same thing as a conversational interview. The API shape is still
   single-shot (`POST /sessions` takes all answers at once); a real multi-turn
   flow needs new session state handling and API surface. Explicitly
-  hand-build/judged-by-eye per spec §6, not a council ACCEPT gate.
-- **Audit log** for approval-state changes, and a **delete-by-business**
-  endpoint (both required by the original spec §9, never built). This is the
-  next piece of work.
+  hand-build/judged-by-eye per spec §6, not a council ACCEPT gate. This is
+  the next piece of backend work.
 - **Frontend** — plain HTML/JS served by FastAPI (Jinja2 + vanilla JS,
   decided over a React/NEXUS-style split frontend to avoid a second
   toolchain for what's an internal operator tool) — once the backend above

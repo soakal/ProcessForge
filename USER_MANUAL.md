@@ -289,6 +289,45 @@ see, not even a hint that it exists.
 
 ---
 
+## Seeing who approved what (the audit log)
+
+Every time someone approves a recommendation, ProcessForge permanently records who
+did it and when — this record can never be edited or deleted, even by ProcessForge
+itself (it's a "write once, keep forever" log, the same idea as a bank keeping a
+permanent record of transactions). To see it for a client:
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/audit-log?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+Add `&record_id=THE_ID` to the address to see only the history for one specific
+recommendation.
+
+---
+
+## Permanently deleting a client's data
+
+If a client asks you to delete everything ProcessForge has stored about them, this
+removes it all — every task, estimate, recommendation, and automation for that
+business — permanently and all at once. **This cannot be undone.**
+
+Because this is irreversible, ProcessForge requires you to type the business's ID
+a second time as a confirmation, so a typo or an accidental click can't delete the
+wrong thing (or delete anything at all, if the two don't match exactly):
+
+```powershell
+curl.exe -s -X POST "http://127.0.0.1:8000/businesses/THE_BUSINESS_ID/delete?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"confirm_business_id\": \"THE_BUSINESS_ID\"}"
+```
+
+Both `THE_BUSINESS_ID` occurrences must be exactly the same business ID — if they
+don't match, ProcessForge refuses and deletes nothing. You'll get back a count of
+exactly what was removed. (The approval history/audit log for that business, above,
+is the one thing that is NOT deleted — a permanent record is supposed to survive
+even the thing it recorded, the same way closing a bank account doesn't erase your
+past transaction history with that bank.)
+
+---
+
 ## What's coming next
 
 These are known, planned improvements — not promises of a specific date:
@@ -297,10 +336,6 @@ These are known, planned improvements — not promises of a specific date:
   you still type everything in one go and get one result back. A future version will
   actually ask you follow-up questions across multiple turns, instead of processing
   everything you type at once.
-- **A record of who approved what, and when.** Right now approvals happen but
-  aren't written down anywhere separately for later review. A future version will
-  keep a permanent record of every approval decision.
-- **A way to fully delete a client's data on request.** Not built yet.
 - **An actual website**, instead of typing commands into a terminal window.
 
 ---
