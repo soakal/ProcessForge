@@ -87,3 +87,14 @@ Runs `pip-audit` against `requirements.lock.txt` then `pytest -q`. A failing pip
 ## Env vars
 
 See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY` for `llm/client.py`, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging.
+
+## Keeping the user manual current
+
+`USER_MANUAL.md` (repo root) is the non-technical, plain-language counterpart to this
+file. It must be updated in the **same change** as any future work that alters
+user-facing behavior, setup steps, or what's possible today — not filed as a separate
+afterthought — mirroring the discipline already used for this file's own Status
+section above. `USER_MANUAL.md` must stay written for a non-technical reader: no
+jargon creep over time. If a term needs explaining (API, endpoint, env var, CLI,
+repo, dependency, etc.), explain it in plain words there rather than assuming the
+reader already knows it.
