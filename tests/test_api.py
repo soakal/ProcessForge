@@ -5,11 +5,13 @@ import importlib
 import os
 import sqlite3
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
 from auth.repository import AuthRepository
+from kb.repository import KBRepository
 from pipeline import _migrate
 
 
@@ -41,6 +43,24 @@ def _login_token(client, db_path, username="alice", password="correct-horse-batt
     )
     assert response.status_code == 200
     return response.json()["token"]
+
+
+def _seed_bare_business(db_path, tenant="acme", name="Bare Co"):
+    """Migrate the schema and create a business with no children directly via
+    KBRepository, mirroring tests/test_delete_business_repo.py's own seeding
+    style. Used for the no-children edge case, which POST /sessions can't
+    produce on its own (it always creates a full chain)."""
+    _migrate(db_path)
+    repo = KBRepository(db_path)
+    try:
+        business_id = str(uuid.uuid4())
+        repo.put("businesses", {
+            "id": business_id, "schema_version": 1, "tenant": tenant,
+            "name": name, "meta": {},
+        })
+        return business_id
+    finally:
+        repo.close()
 
 
 def _set_env(monkeypatch, tmp_path, rate_limit=None):
@@ -906,3 +926,213 @@ def test_expired_token_rejected_on_protected_endpoint(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 401
+
+
+def _create_business(client, token, tenant="acme"):
+    """Seed a real, persisted full chain (business/session/task/opportunity/
+    recommendation) via POST /sessions and return the business_id."""
+    response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": tenant,
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["business_id"]
+
+
+def _delete_business(client, business_id, confirm_business_id, token, tenant="acme"):
+    return client.post(
+        f"/businesses/{business_id}/delete",
+        params={"tenant": tenant},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"confirm_business_id": confirm_business_id},
+    )
+
+
+def test_delete_business_happy_path_returns_counts(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    response = _delete_business(client, business_id, business_id, token, tenant="acme")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "businesses": 1,
+        "sessions": 1,
+        "tasks": 1,
+        "workflow_graphs": 1,
+        "opportunities": 1,
+        "recommendations": 1,
+        "automations": 0,
+    }
+
+
+def test_delete_business_with_no_children_returns_zero_counts(monkeypatch, tmp_path):
+    """No-children edge case: POST /sessions always creates a full chain, so this
+    seeds a bare business directly via the repository (already covered at the
+    repository level in test_delete_business_repo.py) to exercise the endpoint's
+    handling of an all-zero counts dict."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _seed_bare_business(db_path, tenant="acme", name="Bare Co")
+
+    response = _delete_business(client, business_id, business_id, token, tenant="acme")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "businesses": 1,
+        "sessions": 0,
+        "tasks": 0,
+        "workflow_graphs": 0,
+        "opportunities": 0,
+        "recommendations": 0,
+        "automations": 0,
+    }
+
+
+def test_delete_business_cross_tenant_returns_404_and_deletes_nothing(monkeypatch, tmp_path):
+    """Real tenant-isolation test: a valid business_id under one tenant must be
+    invisible (404, not 403 — don't leak that it exists) when the delete is
+    attempted under another tenant, and nothing must actually be deleted."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    response = _delete_business(client, business_id, business_id, token, tenant="other-tenant")
+
+    assert response.status_code == 404
+
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM businesses WHERE id = ?", (business_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_delete_business_wrong_confirmation_returns_400_and_deletes_nothing(monkeypatch, tmp_path):
+    """Most important test in this cycle: a mismatched confirm_business_id must
+    be rejected with 400 BEFORE any repository access, so the business row (and
+    its whole child chain) must still exist afterward, verified directly
+    against the sqlite file rather than through the API."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    response = _delete_business(
+        client, business_id, "not-the-right-business-id", token, tenant="acme"
+    )
+
+    assert response.status_code == 400
+    assert "confirm_business_id" in response.json()["detail"]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        business_count = conn.execute(
+            "SELECT COUNT(*) FROM businesses WHERE id = ?", (business_id,)
+        ).fetchone()[0]
+        session_count = conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE business_id = ?", (business_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert business_count == 1
+    assert session_count == 1
+
+
+def test_delete_business_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    response = _delete_business(
+        client, "does-not-exist", "does-not-exist", token, tenant="acme"
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_business_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    response = client.post(
+        f"/businesses/{business_id}/delete",
+        params={"tenant": "acme"},
+        json={"confirm_business_id": business_id},
+    )
+
+    assert response.status_code == 401
+
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM businesses WHERE id = ?", (business_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_delete_business_invalid_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    response = client.post(
+        f"/businesses/{business_id}/delete",
+        params={"tenant": "acme"},
+        headers={"Authorization": "Bearer garbage-token"},
+        json={"confirm_business_id": business_id},
+    )
+
+    assert response.status_code == 401
+
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM businesses WHERE id = ?", (business_id,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_delete_business_twice_returns_404_on_second_attempt(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    business_id = _create_business(client, token, tenant="acme")
+
+    first_response = _delete_business(client, business_id, business_id, token, tenant="acme")
+    assert first_response.status_code == 200
+
+    second_response = _delete_business(client, business_id, business_id, token, tenant="acme")
+
+    assert second_response.status_code == 404

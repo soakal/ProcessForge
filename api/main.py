@@ -82,6 +82,10 @@ class FeedbackRequest(BaseModel):
     feedback: str
 
 
+class DeleteBusinessRequest(BaseModel):
+    confirm_business_id: str
+
+
 class SessionResponse(BaseModel):
     business_id: str
     session_id: str
@@ -314,6 +318,36 @@ def submit_automation_feedback(
         revised = qa.run((automation, body.feedback), ctx)
         repo.put("automations", revised.model_dump(mode="json"))
         return AutomationOut(**revised.model_dump())
+    finally:
+        repo.close()
+
+
+@app.post("/businesses/{business_id}/delete")
+def delete_business(
+    business_id: str,
+    tenant: str,
+    body: DeleteBusinessRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    # Confirmation check happens BEFORE any repository is opened: a mismatched
+    # confirm_business_id must never be able to reach the DB, even read-only.
+    if body.confirm_business_id != business_id:
+        raise HTTPException(status_code=400, detail="confirm_business_id does not match business_id")
+    repo, _ctx = _open_repo(db_path)
+    try:
+        result = repo.delete_business(business_id, tenant)
+        if result is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        return result
     finally:
         repo.close()
 
