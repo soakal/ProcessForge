@@ -207,7 +207,7 @@ def approve_recommendation(
     _check_rate_limit(client_host)
 
     db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
-    _authenticate(authorization, db_path)
+    operator = _authenticate(authorization, db_path)
     repo, _ctx = _open_repo(db_path)
     try:
         row = repo.get("recommendations", recommendation_id, tenant)
@@ -215,9 +215,42 @@ def approve_recommendation(
             # Same 404 for unknown id and wrong tenant — don't leak which.
             raise HTTPException(status_code=404, detail="not found")
         recommendation = Recommendation(**row)
+        old_state = recommendation.approval_state
         recommendation.approval_state = ApprovalState.approved
         repo.put("recommendations", recommendation.model_dump(mode="json"))
+        if old_state != ApprovalState.approved:
+            # Don't double-log a re-approve of an already-approved recommendation.
+            repo.log_approval_change(
+                operator_id=operator["id"],
+                tenant=tenant,
+                record_kind="recommendation",
+                record_id=recommendation_id,
+                field="approval_state",
+                old_value=old_state.value,
+                new_value=ApprovalState.approved.value,
+            )
         return RecommendationOut(**recommendation.model_dump())
+    finally:
+        repo.close()
+
+
+@app.get("/audit-log")
+def get_audit_log(
+    tenant: str,
+    request: Request,
+    record_id: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        return repo.list_audit_log(tenant, record_id)
     finally:
         repo.close()
 

@@ -422,6 +422,107 @@ def _approve_recommendation(client, recommendation_id, token, tenant="acme"):
     return response.json()
 
 
+def _get_audit_log(client, token, tenant, record_id=None):
+    params = {"tenant": tenant}
+    if record_id is not None:
+        params["record_id"] = record_id
+    response = client.get(
+        "/audit-log",
+        params=params,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_approve_recommendation_writes_audit_log_entry(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    entries = _get_audit_log(client, token, tenant="acme")
+
+    matching = [e for e in entries if e["record_id"] == recommendation["id"]]
+    assert len(matching) == 1
+    entry = matching[0]
+    assert entry["field"] == "approval_state"
+    assert entry["old_value"] == "draft"
+    assert entry["new_value"] == "approved"
+    assert entry["operator_id"]
+
+
+def test_audit_log_isolated_by_tenant(monkeypatch, tmp_path):
+    """Real tenant-isolation test: an audit entry written under one tenant must
+    not appear when the audit log is queried under a different tenant."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    other_tenant_entries = _get_audit_log(client, token, tenant="other-tenant")
+    assert all(e["record_id"] != recommendation["id"] for e in other_tenant_entries)
+
+    acme_entries = _get_audit_log(client, token, tenant="acme")
+    assert any(e["record_id"] == recommendation["id"] for e in acme_entries)
+
+
+def test_audit_log_record_id_filter(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation_one = _create_recommendation(client, token, tenant="acme")
+    recommendation_two = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation_one["id"], token, tenant="acme")
+    _approve_recommendation(client, recommendation_two["id"], token, tenant="acme")
+
+    entries = _get_audit_log(client, token, tenant="acme", record_id=recommendation_one["id"])
+
+    assert len(entries) == 1
+    assert entries[0]["record_id"] == recommendation_one["id"]
+
+
+def test_audit_log_missing_token_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    client = _client()
+
+    response = client.get("/audit-log", params={"tenant": "acme"})
+
+    assert response.status_code == 401
+
+
+def test_audit_log_empty_for_tenant_with_no_entries(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    entries = _get_audit_log(client, token, tenant="empty-tenant")
+
+    assert entries == []
+
+
+def test_reapproving_already_approved_recommendation_does_not_double_log(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    entries = _get_audit_log(client, token, tenant="acme", record_id=recommendation["id"])
+
+    assert len(entries) == 1
+
+
 def test_build_automation_on_unapproved_recommendation_returns_409(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]
