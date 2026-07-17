@@ -83,6 +83,15 @@ def main() -> int:
     root = tk.Tk()
     root.title("ProcessForge — Create Operator Account")
 
+    window_width, window_height = 320, 180
+    x = (root.winfo_screenwidth() - window_width) // 2
+    y = (root.winfo_screenheight() - window_height) // 2
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after_idle(lambda: root.attributes("-topmost", False))
+    root.focus_force()
+
     tk.Label(root, text="Username").grid(row=0, column=0, sticky="e", padx=5, pady=5)
     username_entry = tk.Entry(root)
     username_entry.grid(row=0, column=1, padx=5, pady=5)
