@@ -152,6 +152,24 @@ you might already have running locally, like NEXUS. If `8010` is ever busy too, 
 any other unused number and use it consistently in place of `8010` everywhere below.)
 Press `Ctrl+C` in that window whenever you want to stop it.
 
+### Even easier: the desktop tray app and setup tool (optional)
+
+If you build the desktop helpers described in `desktop/README.md`, you get two
+double-clickable `.exe` files that do steps 4 and 5 above without typing any
+commands:
+
+- **`ProcessForgeTray.exe`** — sits in your system tray and lets you
+  start/stop/restart the ProcessForge server with a click, instead of running
+  the `uvicorn` command by hand. Leave it running the same way you'd leave the
+  command window open.
+- **`ProcessForgeSetup.exe`** — opens a small window with username/password
+  fields for creating your operator account (step 4 above), instead of running
+  the `auth.users create` command-line tool.
+
+These are optional and personal to this machine (see `desktop/README.md` for
+why they aren't redistributable) — the CLI commands above remain the
+documented, always-available way to do the same things.
+
 ---
 
 ## Using the website (the easy way)
