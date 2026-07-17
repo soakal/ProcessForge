@@ -5,11 +5,14 @@ migration path (pipeline._migrate) backs a per-test tmp_path sqlite db, same
 pattern as tests/test_auth_users_cli.py."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 import pipeline
 from auth.repository import AuthRepository, DuplicateOperatorError
-from desktop.setup_account import AccountValidationError, create_account
+from desktop.setup_account import AccountValidationError, _project_root, create_account
 
 
 @pytest.fixture
@@ -87,3 +90,17 @@ def test_create_account_missing_username_arg_still_type_ok(db_path):
     # be rejected the same way as a truly empty string.
     with pytest.raises(AccountValidationError):
         create_account("\t\n ", "a-valid-password", "a-valid-password", db_path)
+
+
+def test_project_root_not_frozen_uses_module_grandparent(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    assert _project_root() == Path(__file__).resolve().parent.parent
+
+
+def test_project_root_frozen_uses_executable_parent(monkeypatch, tmp_path):
+    fake_exe = tmp_path / "ProcessForgeSetup.exe"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+
+    assert _project_root() == fake_exe.resolve().parent

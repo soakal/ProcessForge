@@ -15,10 +15,22 @@ loads .env.
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 from auth.repository import AuthRepository
 from auth.users import _MIN_PASSWORD_LENGTH
 from pipeline import _migrate
+
+
+def _project_root() -> Path:
+    if getattr(sys, "frozen", False):
+        # PyInstaller --onefile extracts to a temp dir at runtime, so
+        # Path(__file__) would resolve inside that temp dir. Use the
+        # directory containing the actual .exe instead.
+        return Path(sys.executable).resolve().parent
+    # desktop/setup_account.py -> desktop -> project root
+    return Path(__file__).resolve().parent.parent
 
 
 class AccountValidationError(ValueError):
@@ -64,8 +76,9 @@ def main() -> int:
 
     from dotenv import load_dotenv
 
-    load_dotenv()
-    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    root = _project_root()
+    load_dotenv(dotenv_path=root / ".env")
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", str(root / "kb" / "processforge.db"))
 
     root = tk.Tk()
     root.title("ProcessForge — Create Operator Account")
