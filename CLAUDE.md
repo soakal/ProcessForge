@@ -223,6 +223,28 @@ comparison (no trim/case-fold that could accept a near-miss), and was
 traced to confirm there is no code path that reaches the API call on a
 mismatch — matching the backend's own pre-DB-open 400 check.
 
+**`stages/builder.py` now emits a deterministic `handoff` brief inside
+`automation.spec`** — `{"known": {...}, "open_questions": [...], "suggested_approach":
+[...]}`, built purely from the Recommendation + its Opportunity + that Opportunity's
+Tasks (all fetched tenant-scoped in `api/main.py`'s `build_automation`, same
+identical-404-on-wrong-tenant discipline as every other endpoint; a missing/unresolvable
+Opportunity is tolerated — the handoff just comes back thinner, never a different error
+or a tenant leak). `known` pulls `task`/`frequency`/`time_spent`/`tools`/
+`desired_outcome` straight off the fetched `Task` records; `open_questions` surfaces
+thin/missing Task fields (e.g. Task's frozen contract has no field for where source
+files live, so that question always fires; empty `tools_used`/`dependencies` each add
+their own question); `suggested_approach` is drawn only from the spec's own existing
+`steps` list. **Zero invention, zero LLM calls** — `builder.run`'s signature changed to
+`run(inp: tuple[Recommendation, Opportunity | None, list[Task]], ctx) -> Automation`
+(mirroring `qa.run`'s existing `tuple[Automation, str]` precedent) but the un-bypassable
+approval gate (`PermissionError` on a non-`approved` Recommendation) is unchanged
+behavior, just reading `inp[0]` now. `tests/seams/test_builder.py` asserts the full
+`handoff` shape, that it's deterministic (same inputs → byte-identical `handoff` across
+two calls), that it's pure `json.dumps`-round-trippable data, and — via a `_Ctx.complete()`
+that raises `AssertionError` if ever called — that the builder never calls `ctx.complete()`
+on any code path. This is additive to `automation.spec` (a JSON blob) only; no change to
+`contracts/records.py`, no `schema_version` bump.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is

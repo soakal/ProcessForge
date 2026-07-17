@@ -26,7 +26,16 @@ from pydantic import BaseModel
 
 from auth.hashing import hash_password, verify_password
 from auth.repository import AuthRepository
-from contracts.records import ApprovalState, Automation, Business, Recommendation, Session, SessionStatus
+from contracts.records import (
+    ApprovalState,
+    Automation,
+    Business,
+    Opportunity,
+    Recommendation,
+    Session,
+    SessionStatus,
+    Task,
+)
 from kb.repository import KBRepository
 from pipeline import _Ctx, _finish_pipeline, _migrate, run_session
 from sinks.kb_sink import KBSink
@@ -514,8 +523,23 @@ def build_automation(
             # Same 404 for unknown id and wrong tenant — don't leak which.
             raise HTTPException(status_code=404, detail="not found")
         recommendation = Recommendation(**row)
+
+        # Best-effort enrichment for the builder's deterministic handoff: an
+        # unresolvable (missing or wrong-tenant) Opportunity is tolerated, not
+        # fatal — the recommendation itself already passed its own tenant-scoped
+        # 404 check above, so a thin/missing Opportunity just means a thinner
+        # handoff, never a different error or a tenant-info leak.
+        opportunity_row = repo.get("opportunities", recommendation.opportunity_id, tenant)
+        opportunity = Opportunity(**opportunity_row) if opportunity_row is not None else None
+        tasks: list[Task] = []
+        if opportunity is not None:
+            for task_id in opportunity.task_ids:
+                task_row = repo.get("tasks", task_id, tenant)
+                if task_row is not None:
+                    tasks.append(Task(**task_row))
+
         try:
-            automation = builder.run(recommendation, ctx)
+            automation = builder.run((recommendation, opportunity, tasks), ctx)
         except PermissionError:
             raise HTTPException(
                 status_code=409,

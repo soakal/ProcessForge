@@ -405,6 +405,17 @@ ProcessForge which client/company this is for.
    also starts out needing its own separate approval before it's ever actually
    used — building it is not the same as running it.
 
+   The plan also includes a **handoff** section — a plain summary of what
+   ProcessForge already knows about the task (from your earlier answers), a list
+   of **open questions** it couldn't figure out on its own (things like "where does
+   the input file live?" that nobody has told it yet), and a **suggested approach**
+   (the steps it's proposing). This is put together from the information you
+   already gave it — nothing here is guessed or invented by an AI; if a question
+   shows up, it's because that detail genuinely hasn't been captured yet, and
+   someone should fill it in before this automation is actually built for real.
+
+
+
 4. **Give feedback and get a revised version** — if the automation isn't quite
    right, describe what should change, and ProcessForge produces a new, revised
    version (the original is kept; this creates a new one, it doesn't overwrite
