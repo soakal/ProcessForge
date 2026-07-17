@@ -151,7 +151,28 @@ in that window whenever you want to stop it.
 
 ---
 
-## Logging in
+## Using the website (the easy way)
+
+**Open a web browser and go to `http://127.0.0.1:8000/ui/login`.** This is the
+easiest way to use ProcessForge — everything described in this manual (starting a
+conversation, approving a recommendation, building an automation, checking the
+audit log, deleting a business) has a page for it. Log in with the username and
+password you created in step 4, and a menu at the top of every page takes you
+where you need to go.
+
+The rest of this manual also documents the command-line (`curl.exe`) way of doing
+the exact same things, one step at a time — useful if you want to script something,
+automate a repeated task, or just don't have a browser handy. **You don't need to
+read the rest of this manual to use ProcessForge day to day** — the website covers
+everything. Keep reading if you want the command-line details, or skip ahead to
+"What's coming next".
+
+---
+
+## Logging in (command-line way)
+
+*Using the website instead? Just go to `http://127.0.0.1:8000/ui/login` and log in
+there — skip this section.*
 
 Before you can do anything else, you need to log in and get a **token** — a
 temporary pass that proves who you are. You send your username and password once,
@@ -173,7 +194,10 @@ curl.exe -s -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer 
 
 ---
 
-## How to use ProcessForge (running a session)
+## How to use ProcessForge (running a session) — command-line way
+
+*Using the website? The dashboard page (`http://127.0.0.1:8000/ui`) does this with
+a form — skip this section.*
 
 Once ProcessForge is running (step 5 above) and you're logged in (previous
 section), you talk to it by sending it a request. The address you send that
@@ -243,7 +267,10 @@ ProcessForge replies with:
 
 ---
 
-## Having a real conversation (instead of typing everything at once)
+## Having a real conversation (instead of typing everything at once) — command-line way
+
+*Using the website? The dashboard page starts this automatically and the
+conversation happens right on screen — skip this section.*
 
 Instead of `/sessions` (where you write out everything up front), you can have
 ProcessForge ask you questions one at a time.
@@ -285,7 +312,11 @@ above for `/sessions`.
 
 ---
 
-## Approving a recommendation and building the automation
+## Approving a recommendation and building the automation — command-line way
+
+*Using the website? Open the recommendation's page
+(`http://127.0.0.1:8000/ui/recommendations/THE_ID?tenant=acme`) and use the buttons
+— skip this section.*
 
 Every recommendation starts out as a **draft** — nothing happens until a person
 approves it. Once you have a recommendation's ID (from the reply above), here's how
@@ -340,7 +371,9 @@ see, not even a hint that it exists.
 
 ---
 
-## Seeing who approved what (the audit log)
+## Seeing who approved what (the audit log) — command-line way
+
+*Using the website? Go to `http://127.0.0.1:8000/ui/audit-log` — skip this section.*
 
 Every time someone approves a recommendation, ProcessForge permanently records who
 did it and when — this record can never be edited or deleted, even by ProcessForge
@@ -356,7 +389,10 @@ recommendation.
 
 ---
 
-## Permanently deleting a client's data
+## Permanently deleting a client's data — command-line way
+
+*Using the website? Go to `http://127.0.0.1:8000/ui/businesses/delete` — the same
+"type the ID again to confirm" safeguard is there too — skip this section.*
 
 If a client asks you to delete everything ProcessForge has stored about them, this
 removes it all — every task, estimate, recommendation, and automation for that
@@ -381,9 +417,8 @@ past transaction history with that bank.)
 
 ## What's coming next
 
-The one known, planned improvement left — not a promise of a specific date:
-
-- **An actual website**, instead of typing commands into a terminal window.
+Nothing is currently planned — every improvement that was on this list has been
+built. If something new comes up, it'll be listed here.
 
 ---
 

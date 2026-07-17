@@ -166,11 +166,43 @@ in the 4-cycle build; the "does this conversation feel natural" judgment
 (per spec §6, only a human can make that call) happens in a real live
 conversation separately, not through the automated ACCEPT gate.
 
-Remaining before this is a usable product (none of these are council loops):
-- **Frontend** — plain HTML/JS served by FastAPI (Jinja2 + vanilla JS,
-  decided over a React/NEXUS-style split frontend to avoid a second
-  toolchain for what's an internal operator tool) — the entire backend is
-  now complete; this is the last piece.
+**The frontend is now built too — ProcessForge is a complete, usable product.**
+6 pages under `/ui`, served by FastAPI directly (Jinja2 templates + vanilla
+JS, no build step, no framework — `jinja2==3.1.6`/`MarkupSafe` pinned in
+`requirements.lock.txt`, decided over a React/NEXUS-style split frontend to
+avoid a second toolchain for an internal operator tool): `/ui/login`,
+`/ui` (dashboard — start an interview), `/ui/interview` (the real
+back-and-forth conversation), `/ui/recommendations/{id}` (approve → build →
+give feedback, all in place), `/ui/audit-log`, `/ui/businesses/delete`.
+
+**Zero new backend endpoints or database tables across all 4 build
+cycles** — every page is a thin client over the API that already existed
+and was already reviewed. Auth reuses the existing Bearer-token API
+exactly as-is: after login, JS stores the token in `localStorage` and a
+shared `fetchWithAuth()` helper (`web/static/app.js`) attaches it to every
+call — no new server-side session, no cookies.
+
+**XSS discipline, verified not just asserted:** every dynamic DOM
+insertion across all 6 pages uses `textContent`/`createElement` — a
+repo-wide grep for `innerHTML` across `web/templates` returns zero
+matches. Where a value needs to be embedded into an inline `<script>`
+(e.g. a `recommendation_id` path param), it goes through Jinja's `|
+tojson` filter, empirically verified safe against a `</script>`
+breakout payload, not just assumed safe.
+
+**The delete-business page is not laxer than the API it calls.** Its
+client-side confirmation guard (typing the business ID a second time)
+runs synchronously before any fetch, uses a strict `!==` string
+comparison (no trim/case-fold that could accept a near-miss), and was
+traced to confirm there is no code path that reaches the API call on a
+mismatch — matching the backend's own pre-DB-open 400 check.
+
+Remaining (none of these are council loops, all are genuinely optional
+polish, not blockers to using the product):
+- Real multi-tenant client self-serve accounts, if that business model is
+  ever wanted (today: Brian's team are the only operators, by design).
+- Anything from spec §11's explicitly-out-of-scope list (voice, real
+  automation execution against live systems, field-level encryption).
 
 ## Build engine
 
