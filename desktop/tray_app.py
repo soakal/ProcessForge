@@ -17,6 +17,7 @@ pystray/Pillow to be installed and never opens a tray icon or GUI loop.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -40,6 +41,11 @@ class ServerController:
 
     @property
     def project_root(self) -> Path:
+        if getattr(sys, "frozen", False):
+            # PyInstaller --onefile extracts to a temp dir at runtime, so
+            # Path(__file__) would resolve inside that temp dir. Use the
+            # directory containing the actual .exe instead.
+            return Path(sys.executable).resolve().parent
         # desktop/tray_app.py -> desktop -> project root
         return Path(__file__).resolve().parent.parent
 

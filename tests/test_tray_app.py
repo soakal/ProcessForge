@@ -6,6 +6,7 @@ pystray/Pillow import ever happens here since main() is gated under
 `if __name__ == "__main__":`, same pattern as tests/test_setup_account.py."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from desktop.tray_app import ServerController
@@ -163,3 +164,19 @@ def test_venv_python_is_resolved_from_project_root_not_hardcoded():
     # hardcoded absolute path — desktop/tray_app.py's grandparent.
     assert controller.project_root == Path(__file__).resolve().parent.parent
     assert controller.venv_python == controller.project_root / ".venv" / "Scripts" / "python.exe"
+
+
+def test_project_root_not_frozen_uses_module_grandparent(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    controller = ServerController(popen_factory=make_factory())
+
+    assert controller.project_root == Path(__file__).resolve().parent.parent
+
+
+def test_project_root_frozen_uses_executable_parent(monkeypatch, tmp_path):
+    fake_exe = tmp_path / "ProcessForge.exe"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    controller = ServerController(popen_factory=make_factory())
+
+    assert controller.project_root == fake_exe.resolve().parent
