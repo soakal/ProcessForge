@@ -98,6 +98,12 @@ class RecommendationOut(BaseModel):
     approval_state: ApprovalState
 
 
+class TurnOut(BaseModel):
+    turn_index: int
+    role: str
+    content: str
+
+
 class AutomationOut(BaseModel):
     id: str
     recommendation_id: str
@@ -352,6 +358,38 @@ def answer_interview(
             opportunities=[OpportunityOut(**o.model_dump()) for o in result.opportunities],
             recommendations=[RecommendationOut(**r.model_dump()) for r in result.recommendations],
         ).model_dump(mode="json")
+    finally:
+        repo.close()
+
+
+@app.get("/interviews/{session_id}/transcript", response_model=list[TurnOut])
+def get_interview_transcript(
+    session_id: str,
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> list[TurnOut]:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        session_row = repo.get("sessions", session_id, tenant)
+        if session_row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which. Must
+            # be resolved BEFORE list_turns is ever called: list_turns itself
+            # is not tenant-scoped (it only filters by session_id), so this
+            # check is the only thing preventing cross-tenant transcript reads.
+            raise HTTPException(status_code=404, detail="not found")
+        turns = repo.list_turns(session_id)
+        return [
+            TurnOut(turn_index=turn["turn_index"], role=turn["role"], content=turn["content"])
+            for turn in turns
+        ]
     finally:
         repo.close()
 

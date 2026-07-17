@@ -14,7 +14,8 @@ A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 (`GET /health`, `POST /sessions`, `GET /recommendations/{id}`, `POST
 /recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
 /automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`,
-`POST /interviews`, `POST /interviews/{id}/answer`).
+`POST /interviews`, `POST /interviews/{id}/answer`, `GET
+/interviews/{id}/transcript`).
 All 6 pipeline stages are now reachable through
 the live API — `build` calls `stages/builder.py` (returns `409` via its
 `PermissionError` if the recommendation isn't `approved` yet, never a raw
@@ -167,6 +168,16 @@ unchanged** — this was purely additive. Zero real network calls anywhere
 in the 4-cycle build; the "does this conversation feel natural" judgment
 (per spec §6, only a human can make that call) happens in a real live
 conversation separately, not through the automated ACCEPT gate.
+
+A read-only `GET /interviews/{session_id}/transcript?tenant=...` endpoint
+returns the full conversation (`{turn_index, role, content}` per turn, ordered)
+via `repo.list_turns(session_id)`. Since `list_turns` itself is not
+tenant-scoped (it only filters by `session_id`), the endpoint always resolves
+`repo.get("sessions", session_id, tenant)` first and returns the identical 404
+on both an unknown id and a wrong tenant before ever calling `list_turns` —
+same isolation pattern as every other endpoint. No UI page yet (command-line/
+API only) and no link from the recommendation page — deliberately deferred to
+a later cycle; this change is backend-only.
 
 **The frontend is now built too — ProcessForge is a complete, usable product.**
 6 pages under `/ui`, served by FastAPI directly (Jinja2 templates + vanilla

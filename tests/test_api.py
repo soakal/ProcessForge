@@ -1304,6 +1304,56 @@ def test_answer_interview_unknown_session_id_returns_404(monkeypatch, tmp_path):
     assert response.status_code == 404
 
 
+def test_get_interview_transcript_happy_path(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+    _answer_interview(
+        client, session_id, "We manually reconcile invoices every week.", token, tenant="acme"
+    )
+
+    response = client.get(
+        f"/interviews/{session_id}/transcript",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    turns = response.json()
+    # opening question (0), the answer just submitted (1), the follow-up
+    # question next_question asked in response (2) — ordered by turn_index.
+    assert [t["turn_index"] for t in turns] == [0, 1, 2]
+    assert turns[0] == {"turn_index": 0, "role": "question", "content": started["question"]}
+    assert turns[1]["role"] == "answer"
+    assert turns[1]["content"] == "We manually reconcile invoices every week."
+    assert turns[2]["role"] == "question"
+
+
+def test_get_interview_transcript_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    """Real tenant-isolation test: a session started under one tenant must be
+    invisible (404, not 403 — don't leak that it exists) when its transcript is
+    requested under another tenant."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    response = client.get(
+        f"/interviews/{session_id}/transcript",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_start_interview_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     client = _client()

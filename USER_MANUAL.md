@@ -345,6 +345,18 @@ Everything else about a finished conversation — approving the recommendation,
 building the automation, giving feedback — works exactly the same as described
 above for `/sessions`.
 
+**Want to re-read the whole conversation?** At any point (during or after the
+conversation), you can fetch the full back-and-forth — every question ProcessForge
+asked and every answer you gave, in order:
+
+```powershell
+curl.exe -s "http://127.0.0.1:8010/interviews/THE_SESSION_ID/transcript?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+This is read-only — it doesn't change anything, so it's safe to check as often as
+you like. (There's no page on the website for this yet — it's command-line only for
+now.)
+
 ---
 
 ## Approving a recommendation and building the automation — command-line way
