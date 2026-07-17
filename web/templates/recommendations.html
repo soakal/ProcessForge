@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Recommendation — ProcessForge{% endblock %}
+{% block content %}
+<h1>Recommendation</h1>
+<div id="recommendation-missing" class="error-message"></div>
+<div id="recommendation-area" style="display:none;">
+  <p id="recommendation-summary"></p>
+  <p id="recommendation-approval-state"></p>
+  <button type="button" id="approve-button" style="display:none;">Approve</button>
+  <button type="button" id="build-button" style="display:none;">Build</button>
+  <div id="build-error" class="error-message"></div>
+</div>
+<div id="automation-area" style="display:none;">
+  <h2>Automation</h2>
+  <pre id="automation-spec"></pre>
+  <p id="automation-blast-radius"></p>
+  <p id="automation-rollback"></p>
+  <p id="automation-approval-state"></p>
+  <form id="feedback-form">
+    <div>
+      <label for="feedback-text">Feedback</label>
+      <textarea id="feedback-text" name="feedback" required></textarea>
+    </div>
+    <div id="feedback-error" class="error-message"></div>
+    <button type="submit">Submit Feedback</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  requireAuth();
+
+  const recommendationId = {{ recommendation_id | tojson }};
+  const tenant = new URLSearchParams(window.location.search).get("tenant");
+
+  const missingBox = document.getElementById("recommendation-missing");
+  const recommendationArea = document.getElementById("recommendation-area");
+  const automationArea = document.getElementById("automation-area");
+
+  function showFallback(message) {
+    recommendationArea.style.display = "none";
+    automationArea.style.display = "none";
+    missingBox.textContent = message;
+    missingBox.appendChild(document.createElement("br"));
+    const link = document.createElement("a");
+    link.href = "/ui";
+    link.textContent = "Back to dashboard";
+    missingBox.appendChild(link);
+  }
+
+  let currentAutomation = null;
+
+  function renderRecommendation(recommendation) {
+    document.getElementById("recommendation-summary").textContent = recommendation.summary;
+    document.getElementById("recommendation-approval-state").textContent =
+      "Status: " + recommendation.approval_state;
+
+    const approveButton = document.getElementById("approve-button");
+    const buildButton = document.getElementById("build-button");
+
+    if (recommendation.approval_state === "draft") {
+      approveButton.style.display = "inline-block";
+      buildButton.style.display = "none";
+    } else if (recommendation.approval_state === "approved" && !currentAutomation) {
+      approveButton.style.display = "none";
+      buildButton.style.display = "inline-block";
+    } else {
+      approveButton.style.display = "none";
+      buildButton.style.display = "none";
+    }
+  }
+
+  function renderAutomation(automation) {
+    currentAutomation = automation;
+    automationArea.style.display = "block";
+    document.getElementById("automation-spec").textContent = JSON.stringify(automation.spec, null, 2);
+    document.getElementById("automation-blast-radius").textContent = "Blast radius: " + automation.blast_radius;
+    document.getElementById("automation-rollback").textContent = "Rollback: " + automation.rollback;
+    document.getElementById("automation-approval-state").textContent = "Automation status: " + automation.approval_state;
+  }
+
+  if (!tenant) {
+    showFallback("Missing tenant — this page requires a tenant query parameter.");
+  } else {
+    (async () => {
+      let response;
+      try {
+        response = await fetchWithAuth(
+          "/recommendations/" + recommendationId + "?tenant=" + encodeURIComponent(tenant)
+        );
+      } catch (err) {
+        showFallback("Could not reach the server. Please try again.");
+        return;
+      }
+
+      if (response.status === 404) {
+        showFallback("Recommendation not found.");
+        return;
+      }
+
+      if (response.status === 401) {
+        showFallback("You are not authorized to view this recommendation.");
+        return;
+      }
+
+      if (!response.ok) {
+        showFallback("Something went wrong. Please try again.");
+        return;
+      }
+
+      const recommendation = await response.json();
+      recommendationArea.style.display = "block";
+      renderRecommendation(recommendation);
+
+      document.getElementById("approve-button").addEventListener("click", async () => {
+        let approveResponse;
+        try {
+          approveResponse = await fetchWithAuth(
+            "/recommendations/" + recommendationId + "/approve?tenant=" + encodeURIComponent(tenant),
+            { method: "POST" }
+          );
+        } catch (err) {
+          document.getElementById("build-error").textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (!approveResponse.ok) {
+          document.getElementById("build-error").textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const updated = await approveResponse.json();
+        renderRecommendation(updated);
+      });
+
+      document.getElementById("build-button").addEventListener("click", async () => {
+        const buildError = document.getElementById("build-error");
+        buildError.textContent = "";
+        let buildResponse;
+        try {
+          buildResponse = await fetchWithAuth(
+            "/recommendations/" + recommendationId + "/build?tenant=" + encodeURIComponent(tenant),
+            { method: "POST" }
+          );
+        } catch (err) {
+          buildError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (buildResponse.status === 409) {
+          buildError.textContent = "This recommendation must be approved before it can be built.";
+          return;
+        }
+
+        if (!buildResponse.ok) {
+          buildError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const automation = await buildResponse.json();
+        renderAutomation(automation);
+        document.getElementById("build-button").style.display = "none";
+      });
+
+      document.getElementById("feedback-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const feedbackError = document.getElementById("feedback-error");
+        feedbackError.textContent = "";
+
+        const feedbackInput = document.getElementById("feedback-text");
+        const feedback = feedbackInput.value;
+
+        let feedbackResponse;
+        try {
+          feedbackResponse = await fetchWithAuth(
+            "/automations/" + currentAutomation.id + "/feedback?tenant=" + encodeURIComponent(tenant),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ feedback }),
+            }
+          );
+        } catch (err) {
+          feedbackError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (!feedbackResponse.ok) {
+          feedbackError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const revised = await feedbackResponse.json();
+        renderAutomation(revised);
+        feedbackInput.value = "";
+      });
+    })();
+  }
+</script>
+{% endblock %}

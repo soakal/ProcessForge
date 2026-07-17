@@ -197,6 +197,17 @@ def ui_interview(request: Request):
     return templates.TemplateResponse(request, "interview.html")
 
 
+@app.get("/ui/recommendations/{recommendation_id}")
+def ui_recommendation(recommendation_id: str, request: Request):
+    # No server-side auth check — requireAuth() in recommendations.html
+    # redirects to /ui/login client-side if there's no token, same as the
+    # rest of /ui. recommendation_id is passed into the template so the
+    # inline script can embed it as a JS constant without re-parsing the URL.
+    return templates.TemplateResponse(
+        request, "recommendations.html", {"recommendation_id": recommendation_id}
+    )
+
+
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(
     body: SessionRequest,

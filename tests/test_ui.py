@@ -51,3 +51,17 @@ def test_ui_interview_renders_page():
     # that renders when pf_interview_state is absent) is present in the
     # rendered HTML.
     assert "No interview in progress" in response.text
+
+
+def test_ui_recommendation_renders_page():
+    client = _client()
+    response = client.get("/ui/recommendations/some-fake-id")
+    assert response.status_code == 200
+    # TestClient's GET never executes the inline fetch-on-load script against
+    # a real backend recommendation, so this only confirms the static page
+    # structure (including the Approve/Build controls and the recommendation
+    # id embedded for the client-side script) is present in the rendered
+    # HTML.
+    assert "Approve" in response.text
+    assert "Build" in response.text
+    assert "some-fake-id" in response.text
