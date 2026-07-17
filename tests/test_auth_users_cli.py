@@ -153,3 +153,27 @@ def test_full_sequence_never_leaks_password_in_stdout_or_stderr(capsys, db_path)
     captured = capsys.readouterr()
     assert secret_password not in captured.out
     assert secret_password not in captured.err
+
+
+def test_cli_self_migrates_fresh_unmigrated_db(capsys, tmp_path, monkeypatch):
+    """Regression: the CLI must run migrations itself on a genuinely fresh,
+    never-migrated sqlite file — unlike the `db_path` fixture above, this test
+    deliberately does NOT call pipeline._migrate() before invoking the CLI, so
+    it actually exercises the CLI's self-migration path. Prior to the fix,
+    every command here raised sqlite3.OperationalError: no such table: operators."""
+    path = str(tmp_path / "fresh_unmigrated.db")
+    monkeypatch.setenv("PROCESSFORGE_DB_PATH", path)
+
+    with patch("auth.users.getpass.getpass", return_value="a-valid-password") as mock_getpass:
+        exit_code = main(["create", "judy"])
+    assert exit_code == 0
+    mock_getpass.assert_called_once()
+
+    capsys.readouterr()
+    exit_code = main(["list"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "judy" in captured.out
+
+    exit_code = main(["delete", "judy"])
+    assert exit_code == 0

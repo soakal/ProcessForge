@@ -13,6 +13,7 @@ import os
 import sys
 
 from auth.repository import AuthRepository, DuplicateOperatorError, OperatorNotFoundError
+from pipeline import _migrate
 
 _MIN_PASSWORD_LENGTH = 8
 
@@ -30,7 +31,9 @@ def _cmd_create(username: str) -> int:
         print(f"error: password must be at least {_MIN_PASSWORD_LENGTH} characters; operator not created", file=sys.stderr)
         return 1
 
-    repo = AuthRepository(_db_path())
+    db_path = _db_path()
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
     try:
         repo.create_operator(username, password)
     except DuplicateOperatorError:
@@ -43,7 +46,9 @@ def _cmd_create(username: str) -> int:
 
 
 def _cmd_list() -> int:
-    repo = AuthRepository(_db_path())
+    db_path = _db_path()
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
     try:
         operators = repo.list_operators()
     finally:
@@ -54,7 +59,9 @@ def _cmd_list() -> int:
 
 
 def _cmd_delete(username: str) -> int:
-    repo = AuthRepository(_db_path())
+    db_path = _db_path()
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
     try:
         repo.delete_operator(username)
     except OperatorNotFoundError:
