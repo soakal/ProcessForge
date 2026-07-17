@@ -65,3 +65,20 @@ def test_ui_recommendation_renders_page():
     assert "Approve" in response.text
     assert "Build" in response.text
     assert "some-fake-id" in response.text
+
+
+def test_ui_audit_log_renders_form():
+    client = _client()
+    response = client.get("/ui/audit-log")
+    assert response.status_code == 200
+    assert "tenant" in response.text
+    assert "record_id" in response.text
+    assert "Search" in response.text
+
+
+def test_ui_businesses_delete_renders_form():
+    client = _client()
+    response = client.get("/ui/businesses/delete")
+    assert response.status_code == 200
+    assert "confirm" in response.text.lower()
+    assert "cannot be undone" in response.text.lower()

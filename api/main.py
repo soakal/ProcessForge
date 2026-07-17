@@ -208,6 +208,21 @@ def ui_recommendation(recommendation_id: str, request: Request):
     )
 
 
+@app.get("/ui/audit-log")
+def ui_audit_log(request: Request):
+    # No server-side auth check — requireAuth() in audit-log.html redirects to
+    # /ui/login client-side if there's no token, same as the rest of /ui.
+    return templates.TemplateResponse(request, "audit-log.html")
+
+
+@app.get("/ui/businesses/delete")
+def ui_businesses_delete(request: Request):
+    # No server-side auth check — requireAuth() in businesses_delete.html
+    # redirects to /ui/login client-side if there's no token, same as the
+    # rest of /ui.
+    return templates.TemplateResponse(request, "businesses_delete.html")
+
+
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(
     body: SessionRequest,
