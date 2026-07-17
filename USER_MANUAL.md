@@ -142,18 +142,21 @@ account, `.\.venv\Scripts\python.exe -m auth.users delete THEIR_USERNAME`.
 Start the ProcessForge program with:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn api.main:app
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --port 8010
 ```
 
-Leave this window open — it needs to keep running while you use ProcessForge. By
-default it listens on your own computer at `http://127.0.0.1:8000`. Press `Ctrl+C`
-in that window whenever you want to stop it.
+Leave this window open — it needs to keep running while you use ProcessForge. It
+listens on your own computer at `http://127.0.0.1:8010`. (Port `8010`, not the more
+common `8000` — chosen specifically so ProcessForge doesn't clash with other things
+you might already have running locally, like NEXUS. If `8010` is ever busy too, pick
+any other unused number and use it consistently in place of `8010` everywhere below.)
+Press `Ctrl+C` in that window whenever you want to stop it.
 
 ---
 
 ## Using the website (the easy way)
 
-**Open a web browser and go to `http://127.0.0.1:8000/ui/login`.** This is the
+**Open a web browser and go to `http://127.0.0.1:8010/ui/login`.** This is the
 easiest way to use ProcessForge — everything described in this manual (starting a
 conversation, approving a recommendation, building an automation, checking the
 audit log, deleting a business) has a page for it. Log in with the username and
@@ -171,7 +174,7 @@ everything. Keep reading if you want the command-line details, or skip ahead to
 
 ## Logging in (command-line way)
 
-*Using the website instead? Just go to `http://127.0.0.1:8000/ui/login` and log in
+*Using the website instead? Just go to `http://127.0.0.1:8010/ui/login` and log in
 there — skip this section.*
 
 Before you can do anything else, you need to log in and get a **token** — a
@@ -180,7 +183,7 @@ and get back a token to use for everything else. Each token works for 7 days, th
 you'll need to log in again.
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8000/auth/login -H "Content-Type: application/json" -d "{\"username\": \"YOUR_USERNAME\", \"password\": \"YOUR_PASSWORD\"}"
+curl.exe -s -X POST http://127.0.0.1:8010/auth/login -H "Content-Type: application/json" -d "{\"username\": \"YOUR_USERNAME\", \"password\": \"YOUR_PASSWORD\"}"
 ```
 
 You'll get back something like `{"token": "a-long-random-string"}`. Copy that
@@ -189,14 +192,14 @@ you're done for the day and want to make sure that token can't be used by anyone
 else, log out with it:
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl.exe -s -X POST http://127.0.0.1:8010/auth/logout -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 ---
 
 ## How to use ProcessForge (running a session) — command-line way
 
-*Using the website? The dashboard page (`http://127.0.0.1:8000/ui`) does this with
+*Using the website? The dashboard page (`http://127.0.0.1:8010/ui`) does this with
 a form — skip this section.*
 
 Once ProcessForge is running (step 5 above) and you're logged in (previous
@@ -225,7 +228,7 @@ handle quote marks differently, first save the request's contents to a small fil
 Then send it:
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:8000/sessions `
+curl.exe -X POST http://127.0.0.1:8010/sessions `
   -H "Authorization: Bearer YOUR_TOKEN_HERE" `
   -H "Content-Type: application/json" `
   -d "@session.json"
@@ -236,7 +239,7 @@ Here's what each part means:
 - **The first block** — writes the details of the task you want to describe into a
   file named `session.json` sitting next to it. Edit the `business_name`, `tenant`,
   and `answers` values to describe your own task before saving.
-- **`http://127.0.0.1:8000/sessions`** — the address of the ProcessForge program
+- **`http://127.0.0.1:8010/sessions`** — the address of the ProcessForge program
   running on your own computer.
 - **`Authorization: Bearer YOUR_TOKEN_HERE`** — replace `YOUR_TOKEN_HERE` with the
   token you got back from logging in (see "Logging in" above). This is required —
@@ -278,7 +281,7 @@ ProcessForge ask you questions one at a time.
 **1. Start the conversation:**
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8000/interviews -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"business_name\": \"Acme Bookkeeping\", \"tenant\": \"acme\"}"
+curl.exe -s -X POST http://127.0.0.1:8010/interviews -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"business_name\": \"Acme Bookkeeping\", \"tenant\": \"acme\"}"
 ```
 
 You'll get back a `session_id` and a `question` — the first thing ProcessForge wants
@@ -287,7 +290,7 @@ to know. Read the question, decide your answer.
 **2. Answer it, and keep answering until it says it's done:**
 
 ```powershell
-curl.exe -s -X POST "http://127.0.0.1:8000/interviews/THE_SESSION_ID/answer?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"answer\": \"We manually reconcile invoices every week.\"}"
+curl.exe -s -X POST "http://127.0.0.1:8010/interviews/THE_SESSION_ID/answer?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"answer\": \"We manually reconcile invoices every week.\"}"
 ```
 
 Each time, you'll get back one of two things:
@@ -315,7 +318,7 @@ above for `/sessions`.
 ## Approving a recommendation and building the automation — command-line way
 
 *Using the website? Open the recommendation's page
-(`http://127.0.0.1:8000/ui/recommendations/THE_ID?tenant=acme`) and use the buttons
+(`http://127.0.0.1:8010/ui/recommendations/THE_ID?tenant=acme`) and use the buttons
 — skip this section.*
 
 Every recommendation starts out as a **draft** — nothing happens until a person
@@ -327,14 +330,14 @@ ProcessForge which client/company this is for.
 1. **Look up a recommendation** — check its current summary and approval status:
 
    ```powershell
-   curl.exe -s "http://127.0.0.1:8000/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+   curl.exe -s "http://127.0.0.1:8010/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
 2. **Approve it** — this is the "yes, go ahead" step. Nothing is built yet — this
    just marks the recommendation as approved:
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/approve?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+   curl.exe -s -X POST "http://127.0.0.1:8010/recommendations/THE_ID/approve?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
 3. **Build it** — this actually creates the automation (a written plan of what it
@@ -345,7 +348,7 @@ ProcessForge which client/company this is for.
    you so, instead of building something nobody signed off on:
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/recommendations/THE_ID/build?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+   curl.exe -s -X POST "http://127.0.0.1:8010/recommendations/THE_ID/build?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
 
    You'll get back an **automation** — its plan, what it could affect ("blast
@@ -359,7 +362,7 @@ ProcessForge which client/company this is for.
    anything):
 
    ```powershell
-   curl.exe -s -X POST "http://127.0.0.1:8000/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
+   curl.exe -s -X POST "http://127.0.0.1:8010/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
    ```
 
 **A note on privacy between clients:** if you try to look up, approve, or build
@@ -373,7 +376,7 @@ see, not even a hint that it exists.
 
 ## Seeing who approved what (the audit log) — command-line way
 
-*Using the website? Go to `http://127.0.0.1:8000/ui/audit-log` — skip this section.*
+*Using the website? Go to `http://127.0.0.1:8010/ui/audit-log` — skip this section.*
 
 Every time someone approves a recommendation, ProcessForge permanently records who
 did it and when — this record can never be edited or deleted, even by ProcessForge
@@ -381,7 +384,7 @@ itself (it's a "write once, keep forever" log, the same idea as a bank keeping a
 permanent record of transactions). To see it for a client:
 
 ```powershell
-curl.exe -s "http://127.0.0.1:8000/audit-log?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl.exe -s "http://127.0.0.1:8010/audit-log?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
 Add `&record_id=THE_ID` to the address to see only the history for one specific
@@ -391,7 +394,7 @@ recommendation.
 
 ## Permanently deleting a client's data — command-line way
 
-*Using the website? Go to `http://127.0.0.1:8000/ui/businesses/delete` — the same
+*Using the website? Go to `http://127.0.0.1:8010/ui/businesses/delete` — the same
 "type the ID again to confirm" safeguard is there too — skip this section.*
 
 If a client asks you to delete everything ProcessForge has stored about them, this
@@ -403,7 +406,7 @@ a second time as a confirmation, so a typo or an accidental click can't delete t
 wrong thing (or delete anything at all, if the two don't match exactly):
 
 ```powershell
-curl.exe -s -X POST "http://127.0.0.1:8000/businesses/THE_BUSINESS_ID/delete?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"confirm_business_id\": \"THE_BUSINESS_ID\"}"
+curl.exe -s -X POST "http://127.0.0.1:8010/businesses/THE_BUSINESS_ID/delete?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"confirm_business_id\": \"THE_BUSINESS_ID\"}"
 ```
 
 Both `THE_BUSINESS_ID` occurrences must be exactly the same business ID — if they
