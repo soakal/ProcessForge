@@ -13,6 +13,7 @@ Every stage has a passing seam test in `tests/seams/`; `tests/test_skeleton.py` 
 A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 (`GET /health`, `POST /sessions`, `GET /recommendations/{id}`, `POST
 /recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
+/recommendations/{id}/refine`, `POST
 /automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`,
 `POST /interviews`, `POST /interviews/{id}/answer`, `GET
 /interviews/{id}/transcript`).
@@ -271,6 +272,32 @@ in the new code path — `tests/seams/test_builder.py` adds two seam tests cover
 both the happy path (all three answers land, the open question shrinks) and the
 no-match path (an orphan answer or off-topic question is correctly ignored, not
 guessed into a slot).
+
+**`POST /recommendations/{id}/refine`** lets an operator answer a handoff's open
+question(s) *after* an automation already exists, without starting a whole new
+interview. Same tenant-scoped identical-404 discipline as every other endpoint;
+`session_id` is derived the same already-tenant-verified-Task way `build_automation`
+does (never attacker-supplied), so calling the non-tenant-scoped
+`repo.add_turn`/`list_turns` with it is safe. The request body's
+`turns: [{question, answer}, ...]` are appended to `session_turns` via
+`repo.add_turn` — deliberately NOT subject to `_MAX_INTERVIEW_ANSWERS` (that cap only
+governs the original `/interviews/{id}/answer` flow) — and `builder.run` is re-run
+against the now-fuller turns to regenerate `handoff` from scratch, same deterministic,
+zero-`ctx.complete()` path as `build_automation`. The result is persisted as a
+**new** `Automation` row (fresh UUID id via `builder.run`, so `repo.put` inserts
+rather than updates) with `spec["revision"]` set to one more than the highest
+`spec.get("revision", 1)` across every prior Automation for that Recommendation —
+reusing `stages/qa.py`'s existing revision-numbering convention rather than
+inventing a second one. `KBRepository.list_automations_by_recommendation` (new,
+tenant-scoped) finds those prior Automations. Prior Automation rows are never
+mutated, so every earlier revision (including the original, pre-refine build)
+stays independently readable with its original `handoff` intact. `spec["revision"]`
+is free-form data inside the existing `spec: dict` JSON blob — no change to
+`contracts/records.py`, no `schema_version` bump. If `turns` is non-empty but no
+`session_id` is resolvable (opportunity/tasks missing), the endpoint returns
+`409` instead of silently dropping the answers and still persisting a
+revision-bumped Automation whose handoff doesn't reflect them; an empty
+`turns` list still tolerates a missing session the same as before.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

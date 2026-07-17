@@ -107,6 +107,20 @@ class KBRepository:
             raise ValueError(f"{kind} is not scoped to a business")
         return [self._deserialize(kind, r) for r in rows]
 
+    def list_automations_by_recommendation(self, recommendation_id: str, tenant: str) -> list[dict]:
+        """Tenant-scoped: every Automation ever built/refined from one
+        Recommendation. Used by POST /recommendations/{id}/refine (api/main.py)
+        to find the prior latest revision to increment from — callers should
+        compare each row's spec['revision'] (see stages/qa.py's existing
+        revision pattern), not row order, since insertion order isn't
+        guaranteed to match revision order."""
+        cols = COLUMNS["automations"]
+        rows = self._conn.execute(
+            f"SELECT {', '.join(cols)} FROM automations WHERE recommendation_id = ? AND tenant = ?",
+            (recommendation_id, tenant),
+        ).fetchall()
+        return [self._deserialize("automations", r) for r in rows]
+
     # -- audit_log: append-only, no parent-chain tenant resolution needed (caller
     # already knows the tenant), so these bypass _resolve_tenant entirely. --
     def log_approval_change(

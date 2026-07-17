@@ -741,6 +741,157 @@ def test_submit_automation_feedback_missing_token_rejected(monkeypatch, tmp_path
     assert response.status_code == 401
 
 
+def test_refine_recommendation_regenerates_handoff_and_new_revision(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert build_response.status_code == 200
+    original = build_response.json()
+    original_open_questions = original["spec"]["handoff"]["open_questions"]
+    assert any("input file" in q.lower() for q in original_open_questions)
+    assert "revision" not in original["spec"]
+
+    answer = "It comes from the shared drive's nightly export folder."
+    refine_response = client.post(
+        f"/recommendations/{recommendation['id']}/refine",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "turns": [
+                {
+                    "question": "Where does the input file live for this task?",
+                    "answer": answer,
+                }
+            ]
+        },
+    )
+
+    assert refine_response.status_code == 200
+    refined = refine_response.json()
+    assert refined["id"] != original["id"]
+    assert refined["recommendation_id"] == original["recommendation_id"]
+    # The new answer landed in the regenerated handoff, and the matching
+    # open question was dropped.
+    assert refined["spec"]["handoff"]["known"]["input_file_location"] == answer
+    assert not any(
+        "input file" in q.lower() for q in refined["spec"]["handoff"]["open_questions"]
+    )
+    # A new revision was recorded, reusing stages/qa.py's existing pattern.
+    assert refined["spec"]["revision"] == 2
+
+    # The prior automation is still fetchable, unmodified.
+    repo = KBRepository(db_path)
+    try:
+        prior_row = repo.get("automations", original["id"], "acme")
+    finally:
+        repo.close()
+    assert prior_row is not None
+    assert prior_row["spec"] == original["spec"]
+
+
+def test_refine_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    _create_recommendation(client, token, tenant="acme")
+
+    response = client.post(
+        "/recommendations/does-not-exist/refine",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"turns": []},
+    )
+
+    assert response.status_code == 404
+
+
+def test_refine_recommendation_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert build_response.status_code == 200
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/refine",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"turns": []},
+    )
+
+    assert response.status_code == 404
+
+
+def test_refine_recommendation_turns_with_no_resolvable_session_returns_409(
+    monkeypatch, tmp_path
+):
+    """If the caller submits non-empty turns but no session is resolvable for
+    this recommendation's opportunity/tasks, refine must fail explicitly
+    instead of silently discarding the answers while still returning 200 with
+    a bumped revision and an unchanged handoff."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    # Remove every task backing this recommendation's opportunity so
+    # refine_recommendation can't derive a session_id to attach turns to.
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM tasks WHERE tenant = ?", ("acme",))
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/refine",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "turns": [
+                {
+                    "question": "Where does the input file live for this task?",
+                    "answer": "It comes from the shared drive.",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 409
+    assert "session" in response.json()["detail"].lower()
+
+    # No new Automation was persisted, and no revision was recorded, for this
+    # recommendation.
+    conn = sqlite3.connect(db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM automations WHERE recommendation_id = ?",
+            (recommendation["id"],),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0
+
+
 def test_login_correct_credentials_returns_token(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]

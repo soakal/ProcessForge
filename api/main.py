@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from auth.hashing import hash_password, verify_password
 from auth.repository import AuthRepository
@@ -124,6 +124,22 @@ class AutomationOut(BaseModel):
 
 class FeedbackRequest(BaseModel):
     feedback: str
+
+
+class RefineTurn(BaseModel):
+    question: str
+    answer: str
+
+
+class RefineRequest(BaseModel):
+    # Bounded defense-in-depth against a single request driving an unbounded
+    # number of repo.add_turn() calls (each does an O(n) COUNT(*) over
+    # session_turns, so an unbounded list is a self-inflicted quadratic-cost
+    # DoS vector for an authenticated caller). This is unrelated to
+    # _MAX_INTERVIEW_ANSWERS, which gates a different flow's completion logic,
+    # not raw request size — refine still accepts as many turns as a normal
+    # follow-up would ever need.
+    turns: list[RefineTurn] = Field(default_factory=list, max_length=50)
 
 
 class DeleteBusinessRequest(BaseModel):
@@ -554,6 +570,99 @@ def build_automation(
                 status_code=409,
                 detail="the recommendation must be approved before it can be built",
             )
+        repo.put("automations", automation.model_dump(mode="json"))
+        return AutomationOut(**automation.model_dump())
+    finally:
+        repo.close()
+
+
+@app.post("/recommendations/{recommendation_id}/refine", response_model=AutomationOut)
+def refine_recommendation(
+    recommendation_id: str,
+    tenant: str,
+    body: RefineRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> AutomationOut:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, ctx = _open_repo(db_path)
+    try:
+        row = repo.get("recommendations", recommendation_id, tenant)
+        if row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        recommendation = Recommendation(**row)
+
+        # Best-effort enrichment for the builder's deterministic handoff, same
+        # tolerant pattern as build_automation: an unresolvable (missing or
+        # wrong-tenant) Opportunity just yields a thinner handoff, never a
+        # different error or a tenant-info leak.
+        opportunity_row = repo.get("opportunities", recommendation.opportunity_id, tenant)
+        opportunity = Opportunity(**opportunity_row) if opportunity_row is not None else None
+        tasks: list[Task] = []
+        if opportunity is not None:
+            for task_id in opportunity.task_ids:
+                task_row = repo.get("tasks", task_id, tenant)
+                if task_row is not None:
+                    tasks.append(Task(**task_row))
+
+        # session_id comes from an already tenant-verified Task fetched above
+        # (never attacker-supplied), same reasoning already documented for
+        # build_automation and the transcript endpoint — safe to pass directly
+        # to the non-tenant-scoped add_turn/list_turns below. If no session_id
+        # is resolvable (e.g. no tasks) AND the caller submitted no turns, that
+        # mirrors the same tolerant "thinner, never different" behavior used
+        # for a missing Opportunity above. But if the caller DID submit turns,
+        # silently discarding them while still returning a normal 200 would
+        # bump the revision without the handoff ever reflecting the new
+        # answers — so that combination is a hard error instead.
+        session_id = tasks[0].session_id if tasks else None
+        if session_id is None and body.turns:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "cannot record refine answers: no session is resolvable "
+                    "for this recommendation's opportunity/tasks"
+                ),
+            )
+        if session_id is not None:
+            # Append the refine request's follow-up Q&A pairs as new
+            # session_turns. Deliberately NOT gated by _MAX_INTERVIEW_ANSWERS —
+            # that cap only governs the original /interviews/{id}/answer
+            # flow; refine is a separate flow with its own turns.
+            for turn in body.turns:
+                repo.add_turn(session_id, "question", turn.question)
+                repo.add_turn(session_id, "answer", turn.answer)
+        turns = repo.list_turns(session_id) if session_id else []
+
+        # Prior latest revision across every Automation ever built/refined for
+        # this Recommendation, so the refined Automation's revision reflects
+        # the new answers while every prior version stays retrievable,
+        # unmodified (a fresh UUID id is assigned below via builder.run, so
+        # repo.put inserts a new row rather than updating an old one). Reuses
+        # stages/qa.py's own `spec.get("revision", 1)` default so an
+        # automation that was never revised (its spec has no "revision" key
+        # yet, e.g. straight off build_automation) is treated the same way
+        # qa.py treats it.
+        prior_automations = repo.list_automations_by_recommendation(recommendation_id, tenant)
+        prior_revision = max(
+            (a["spec"].get("revision", 1) for a in prior_automations), default=0
+        )
+
+        try:
+            automation = builder.run((recommendation, opportunity, tasks, turns), ctx)
+        except PermissionError:
+            raise HTTPException(
+                status_code=409,
+                detail="the recommendation must be approved before it can be refined",
+            )
+        automation.spec["revision"] = prior_revision + 1
         repo.put("automations", automation.model_dump(mode="json"))
         return AutomationOut(**automation.model_dump())
     finally:

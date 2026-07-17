@@ -438,6 +438,27 @@ ProcessForge which client/company this is for.
    curl.exe -s -X POST "http://127.0.0.1:8010/automations/THE_AUTOMATION_ID/feedback?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"feedback\": \"Please narrow this to only the invoicing system.\"}"
    ```
 
+5. **Answer one of the handoff's open questions and get an updated plan** — if the
+   handoff came back with an open question you can now answer (e.g. "where does the
+   input file live for this task?"), send the question and your answer back to the
+   recommendation itself and ProcessForge regenerates the handoff with your answer
+   folded in — as a new automation version, same as feedback above (the original is
+   kept untouched, this creates a new one):
+
+   ```powershell
+   curl.exe -s -X POST "http://127.0.0.1:8010/recommendations/THE_ID/refine?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"turns\": [{\"question\": \"Where does the input file live for this task?\", \"answer\": \"It comes from the shared drive's nightly export folder.\"}]}"
+   ```
+
+   You can send more than one question/answer pair at once in the `turns` list.
+   The reply is a new automation, with the answered question no longer showing up
+   in its open questions (if ProcessForge could match your answer to one of the
+   three questions it already knows how to recognize: where the input file lives,
+   filter rules or column values, and desired output format — an answer to a
+   different question is simply not matched to anything, rather than guessed).
+   If you submit answers this way but ProcessForge can't find the underlying
+   interview to attach them to, it reports an error instead of quietly
+   ignoring your answers and returning what looks like a normal new version.
+
 **A note on privacy between clients:** if you try to look up, approve, or build
 something using the wrong `tenant` value (e.g. a typo, or accidentally mixing up
 two clients), ProcessForge treats it exactly the same as if that ID didn't exist at
