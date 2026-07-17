@@ -40,7 +40,9 @@ NIST-recommended KDF, no `bcrypt`/`argon2` dependency needed), `auth/repository.
 NEW Alembic migration added these two tables to the same KB SQLite file;
 deliberately NOT folded into `kb/repository.py`'s tenant-resolving generic
 `get`/`put`, since operator accounts aren't tenant data), `auth/users.py`
-(CLI: `python -m auth.users create|list|delete` — no self-serve signup,
+(CLI: `python -m auth.users create|passwd|list|delete` — `passwd` sets a new
+password for an existing operator and revokes that operator's live tokens via
+`AuthRepository.set_password`; no self-serve signup,
 matches the decided operator-only model: Brian's team are the only people
 who log in, not self-serve multi-tenant client accounts). `POST /auth/login`
 issues an opaque 7-day token (`secrets.token_urlsafe`, not a JWT — no

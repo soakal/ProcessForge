@@ -56,6 +56,20 @@ class AuthRepository:
         ).fetchone()
         return dict(row) if row else None
 
+    def set_password(self, username: str, new_password: str) -> None:
+        operator = self.get_operator(username)
+        if operator is None:
+            raise OperatorNotFoundError(f"operator username not found: {username!r}")
+        self._conn.execute(
+            "UPDATE operators SET password_hash = ? WHERE username = ?",
+            (hash_password(new_password), username),
+        )
+        # A password change must invalidate existing sessions — drop the
+        # operator's tokens so a token issued under the old credential can't
+        # outlive it. Same token-cleanup rationale as delete_operator().
+        self._conn.execute("DELETE FROM auth_tokens WHERE operator_id = ?", (operator["id"],))
+        self._conn.commit()
+
     def create_token(self, operator_id: str) -> str:
         token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)

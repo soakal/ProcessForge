@@ -2,6 +2,7 @@
 
 Usage:
     python -m auth.users create <username>
+    python -m auth.users passwd <username>
     python -m auth.users list
     python -m auth.users delete <username>
 """
@@ -22,13 +23,24 @@ def _db_path() -> str:
     return os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
 
 
-def _cmd_create(username: str) -> int:
-    password = getpass.getpass(f"Enter password for {username}: ")
+def _prompt_password(prompt: str, fail_suffix: str) -> str | None:
+    """Prompt for a password via getpass and validate it. Returns the password,
+    or None (after printing an error to stderr) if empty/whitespace-only or
+    shorter than _MIN_PASSWORD_LENGTH. fail_suffix names what didn't happen
+    (e.g. 'operator not created')."""
+    password = getpass.getpass(prompt)
     if not password.strip():
-        print("error: no password entered (empty input); operator not created", file=sys.stderr)
-        return 1
+        print(f"error: no password entered (empty input); {fail_suffix}", file=sys.stderr)
+        return None
     if len(password.strip()) < _MIN_PASSWORD_LENGTH:
-        print(f"error: password must be at least {_MIN_PASSWORD_LENGTH} characters; operator not created", file=sys.stderr)
+        print(f"error: password must be at least {_MIN_PASSWORD_LENGTH} characters; {fail_suffix}", file=sys.stderr)
+        return None
+    return password
+
+
+def _cmd_create(username: str) -> int:
+    password = _prompt_password(f"Enter password for {username}: ", "operator not created")
+    if password is None:
         return 1
 
     db_path = _db_path()
@@ -42,6 +54,25 @@ def _cmd_create(username: str) -> int:
     finally:
         repo.close()
     print(f"{username}: created")
+    return 0
+
+
+def _cmd_passwd(username: str) -> int:
+    password = _prompt_password(f"Enter new password for {username}: ", "password not changed")
+    if password is None:
+        return 1
+
+    db_path = _db_path()
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        repo.set_password(username, password)
+    except OperatorNotFoundError:
+        print(f"error: operator username not found: {username!r}", file=sys.stderr)
+        return 1
+    finally:
+        repo.close()
+    print(f"{username}: password updated")
     return 0
 
 
@@ -80,6 +111,9 @@ def _build_parser() -> argparse.ArgumentParser:
     create_parser = subparsers.add_parser("create", help="Create a new operator")
     create_parser.add_argument("username")
 
+    passwd_parser = subparsers.add_parser("passwd", help="Set a new password for an existing operator")
+    passwd_parser.add_argument("username")
+
     subparsers.add_parser("list", help="List all operators")
 
     delete_parser = subparsers.add_parser("delete", help="Delete an operator")
@@ -94,6 +128,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "create":
         return _cmd_create(args.username)
+    if args.command == "passwd":
+        return _cmd_passwd(args.username)
     if args.command == "list":
         return _cmd_list()
     if args.command == "delete":

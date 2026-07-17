@@ -137,6 +137,17 @@ securely (hashed, never as plain readable text). To see everyone who has an
 account, run `.\.venv\Scripts\python.exe -m auth.users list`. To remove someone's
 account, `.\.venv\Scripts\python.exe -m auth.users delete THEIR_USERNAME`.
 
+To **change a password** later (yours or someone else's — for a forgotten
+password, or just to rotate it), run:
+
+```powershell
+.\.venv\Scripts\python.exe -m auth.users passwd YOUR_USERNAME
+```
+
+It asks for the new password the same way. Changing a password automatically
+signs that account out everywhere it was logged in, so anyone using the old
+password will have to log in again with the new one.
+
 ### 5. Start ProcessForge
 
 Start the ProcessForge program with:
@@ -163,8 +174,11 @@ commands:
   the `uvicorn` command by hand. Leave it running the same way you'd leave the
   command window open.
 - **`ProcessForgeSetup.exe`** — opens a small window with username/password
-  fields for creating your operator account (step 4 above), instead of running
-  the `auth.users create` command-line tool.
+  fields. **Create account** makes your operator account (step 4 above);
+  **Update password** changes the password for an account that already exists —
+  instead of running the `auth.users create` / `auth.users passwd` command-line
+  tools. (Changing a password here signs that account out everywhere, same as
+  the command-line tool.)
 
 These are optional and personal to this machine (see `desktop/README.md` for
 why they aren't redistributable) — the CLI commands above remain the

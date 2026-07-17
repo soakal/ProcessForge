@@ -97,6 +97,63 @@ def test_create_duplicate_username_rejected_cleanly_not_traceback(capsys, db_pat
     assert "already exists" in captured.err
 
 
+def test_passwd_changes_password_for_existing_operator(capsys, db_path):
+    with patch("auth.users.getpass.getpass", return_value="first-password"):
+        main(["create", "kelly"])
+    repo = AuthRepository(db_path)
+    try:
+        old_hash = repo.get_operator("kelly")["password_hash"]
+    finally:
+        repo.close()
+    capsys.readouterr()
+
+    with patch("auth.users.getpass.getpass", return_value="second-password") as mock_getpass:
+        exit_code = main(["passwd", "kelly"])
+
+    assert exit_code == 0
+    mock_getpass.assert_called_once()
+    captured = capsys.readouterr()
+    assert "kelly" in captured.out
+    repo = AuthRepository(db_path)
+    try:
+        assert repo.get_operator("kelly")["password_hash"] != old_hash
+    finally:
+        repo.close()
+
+
+def test_passwd_unknown_username_rejected_cleanly_not_traceback(capsys, db_path):
+    with patch("auth.users.getpass.getpass", return_value="a-valid-password") as mock_getpass:
+        exit_code = main(["passwd", "nobody"])
+
+    assert exit_code != 0
+    mock_getpass.assert_called_once()
+    captured = capsys.readouterr()
+    assert "not found" in captured.err.lower()
+
+
+def test_passwd_short_password_rejected_before_db(capsys, db_path):
+    with patch("auth.users.getpass.getpass", return_value="first-password"):
+        main(["create", "leo"])
+    repo = AuthRepository(db_path)
+    try:
+        old_hash = repo.get_operator("leo")["password_hash"]
+    finally:
+        repo.close()
+    capsys.readouterr()
+
+    with patch("auth.users.getpass.getpass", return_value="short"):
+        exit_code = main(["passwd", "leo"])
+
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert "8" in captured.err
+    repo = AuthRepository(db_path)
+    try:
+        assert repo.get_operator("leo")["password_hash"] == old_hash
+    finally:
+        repo.close()
+
+
 def test_list_shows_created_usernames(capsys, db_path):
     with patch("auth.users.getpass.getpass", return_value="frank-password"):
         main(["create", "frank"])

@@ -124,6 +124,33 @@ def test_delete_operator_also_removes_its_tokens(repo, tmp_path):
     assert count == 0
 
 
+def test_set_password_changes_hash_and_keeps_operator(repo):
+    repo.create_operator("penny", "old-password")
+    old_hash = repo.get_operator("penny")["password_hash"]
+
+    repo.set_password("penny", "brand-new-password")
+
+    new_hash = repo.get_operator("penny")["password_hash"]
+    assert new_hash != old_hash
+    assert new_hash.startswith("pbkdf2_sha256$")
+
+
+def test_set_password_nonexistent_raises_operator_not_found_error(repo):
+    with pytest.raises(OperatorNotFoundError):
+        repo.set_password("nobody", "some-password")
+
+
+def test_set_password_revokes_existing_tokens(repo):
+    operator_id = repo.create_operator("quinn", "first-password")
+    token = repo.create_token(operator_id)
+    assert repo.get_operator_by_token(token) is not None
+
+    repo.set_password("quinn", "second-password")
+
+    # A password change must invalidate old sessions.
+    assert repo.get_operator_by_token(token) is None
+
+
 def test_list_operators_excludes_password_hash(repo):
     repo.create_operator("frank", "frank-password")
     repo.create_operator("grace", "grace-password")

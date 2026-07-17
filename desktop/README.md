@@ -7,8 +7,12 @@ this machine without typing commands by hand:
   ProcessForge API server (`ServerController`) and gives you quick links to
   open ProcessForge in a browser and open `.env`.
 - **`setup_account.py`** — a tiny window for creating an operator account
-  (`create_account()`), instead of running the `auth.users create` CLI
-  command.
+  (`create_account()`) **or changing an existing operator's password**
+  (`update_password()`), instead of running the `auth.users create` /
+  `auth.users passwd` CLI commands. Same three fields (username, password,
+  confirm) drive both buttons: **Create account** makes a new operator;
+  **Update password** sets a new password for an operator that already exists
+  (and revokes that operator's existing login tokens).
 
 Both files have an `if __name__ == "__main__":` guard that calls their own
 `main()` — that's the entry point PyInstaller needs to build an exe from.

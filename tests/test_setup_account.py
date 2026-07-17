@@ -11,8 +11,13 @@ from pathlib import Path
 import pytest
 
 import pipeline
-from auth.repository import AuthRepository, DuplicateOperatorError
-from desktop.setup_account import AccountValidationError, _project_root, create_account
+from auth.repository import AuthRepository, DuplicateOperatorError, OperatorNotFoundError
+from desktop.setup_account import (
+    AccountValidationError,
+    _project_root,
+    create_account,
+    update_password,
+)
 
 
 @pytest.fixture
@@ -90,6 +95,47 @@ def test_create_account_missing_username_arg_still_type_ok(db_path):
     # be rejected the same way as a truly empty string.
     with pytest.raises(AccountValidationError):
         create_account("\t\n ", "a-valid-password", "a-valid-password", db_path)
+
+
+def test_update_password_changes_hash_for_existing_operator(db_path):
+    create_account("grace", "original-password", "original-password", db_path)
+    repo = AuthRepository(db_path)
+    try:
+        old_hash = repo.get_operator("grace")["password_hash"]
+    finally:
+        repo.close()
+
+    update_password("grace", "replacement-password", "replacement-password", db_path)
+
+    repo = AuthRepository(db_path)
+    try:
+        assert repo.get_operator("grace")["password_hash"] != old_hash
+    finally:
+        repo.close()
+
+
+def test_update_password_strips_username(db_path):
+    create_account("heidi", "original-password", "original-password", db_path)
+
+    # A trailing space must resolve to the same stored (stripped) operator.
+    update_password("heidi ", "replacement-password", "replacement-password", db_path)
+
+    repo = AuthRepository(db_path)
+    try:
+        assert repo.get_operator("heidi") is not None
+    finally:
+        repo.close()
+
+
+def test_update_password_unknown_username_raises(db_path):
+    with pytest.raises(OperatorNotFoundError):
+        update_password("nobody", "a-valid-password", "a-valid-password", db_path)
+
+
+def test_update_password_mismatched_confirm_rejected(db_path):
+    create_account("ivan", "original-password", "original-password", db_path)
+    with pytest.raises(AccountValidationError):
+        update_password("ivan", "a-valid-password", "different-password", db_path)
 
 
 def test_project_root_not_frozen_uses_module_grandparent(monkeypatch):
