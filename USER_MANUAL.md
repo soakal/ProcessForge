@@ -48,9 +48,11 @@ doesn't make sense), ProcessForge automatically falls back to a predictable,
 rule-based approach instead: for `/sessions`, it looks at the first line of what you
 typed as the task description, the last line as the outcome you want, and scans
 everything in between for time/frequency clues; for `/interviews`, it asks the same
-fixed 3 questions every time (how long/how often, then desired outcome, then it's
-done). You always get a usable result either way — the fallback exists specifically
-so a flaky AI connection never breaks things, for either kind of session.
+fixed 6 questions every time (how long/how often, then desired outcome, then where
+the input files or source data live, then any filter rules or specific column
+values that matter, then the desired output format, then it's done). You always get
+a usable result either way — the fallback exists specifically so a flaky AI
+connection never breaks things, for either kind of session.
 
 ---
 
@@ -332,8 +334,10 @@ Each time, you'll get back one of two things:
   found, the estimated hours saved, and a draft recommendation). This means the
   conversation is over — you don't need to send another answer to this session.
 
-Without an AI service connected, this always takes exactly 3 answers (a fixed,
-predictable set of questions). With one connected, ProcessForge decides on its own
+Without an AI service connected, this always takes exactly 6 answers (a fixed,
+predictable set of questions: how long/how often, desired outcome, where the input
+files or source data live, any filter rules or specific column values that matter,
+and the desired output format). With one connected, ProcessForge decides on its own
 when it has enough information — it will never ask more than 6 questions total,
 even if it would otherwise keep going, so a conversation can't run forever.
 

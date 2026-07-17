@@ -154,11 +154,15 @@ the new `session_turns` table (new migration; `KBRepository.add_turn`/
 `next_question(turns, ctx)` — LLM-first (reusing the SAME per-turn
 delimiter neutralization already twice-hardened for the extraction path,
 since this is a second place untrusted answer text reaches an LLM prompt),
-falling back to a **deterministic 3-question script** on ANY failure
-(matches today's fixed extraction fields: time/frequency, then desired
-outcome, then done). **Hard-capped at 6 answers regardless of what an LLM
-would ask** — enforced at the API layer, checked before `next_question` is
-even called, so a runaway adaptive conversation can't happen. Once
+falling back to a **deterministic 6-question script** on ANY failure: time/
+frequency, then desired outcome, then input-file location, then filter
+rule/column values, then desired output format, then done (the ladder in
+`stages/interviewer.py`'s `_next_question_deterministic`; the LLM-first
+prompt's goal statement in `_build_next_question_messages` asks about the
+same set of dimensions, so both paths probe the same substantive ground).
+**Hard-capped at 6 answers regardless of what an LLM would ask** — enforced at the
+API layer, checked before `next_question` is even called, so a runaway
+adaptive conversation can't happen. Once
 complete, reuses `pipeline.py`'s `_finish_pipeline` (extracted from
 `run_session` in a byte-for-byte-behavior-preserving refactor) to run
 mapper→analyzer→architect and return the exact same response shape

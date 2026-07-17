@@ -436,7 +436,11 @@ def test_next_question_malformed_json_falls_back_to_deterministic():
         interviewer.next_question(turns_two_answers, _LlmCtx())
         == "What would you like the end result to be?"
     )
-    assert interviewer.next_question(turns_three_answers, _LlmCtx()) is None
+    assert (
+        interviewer.next_question(turns_three_answers, _LlmCtx())
+        == "Where do the input files or source data live (e.g. a folder, "
+        "an email inbox, another system)?"
+    )
 
 
 def test_next_question_deterministic_ladder_with_no_complete_attribute():
@@ -454,6 +458,18 @@ def test_next_question_deterministic_ladder_with_no_complete_attribute():
         {"role": "question", "content": "What's the desired outcome?"},
         {"role": "answer", "content": "Fully automated reconciliation."},
     ]
+    turns_four_answers = turns_three_answers + [
+        {"role": "question", "content": "Where do the input files live?"},
+        {"role": "answer", "content": "A shared network drive."},
+    ]
+    turns_five_answers = turns_four_answers + [
+        {"role": "question", "content": "Any filter rules that matter?"},
+        {"role": "answer", "content": "Only rows where status is 'open'."},
+    ]
+    turns_six_answers = turns_five_answers + [
+        {"role": "question", "content": "What output format do you want?"},
+        {"role": "answer", "content": "An Excel spreadsheet."},
+    ]
 
     assert (
         interviewer.next_question(turns_one_answer, _Ctx())
@@ -463,7 +479,22 @@ def test_next_question_deterministic_ladder_with_no_complete_attribute():
         interviewer.next_question(turns_two_answers, _Ctx())
         == "What would you like the end result to be?"
     )
-    assert interviewer.next_question(turns_three_answers, _Ctx()) is None
+    assert (
+        interviewer.next_question(turns_three_answers, _Ctx())
+        == "Where do the input files or source data live (e.g. a folder, "
+        "an email inbox, another system)?"
+    )
+    assert (
+        interviewer.next_question(turns_four_answers, _Ctx())
+        == "Are there any filter rules or specific column values that "
+        "matter (e.g. only rows where status is 'open')?"
+    )
+    assert (
+        interviewer.next_question(turns_five_answers, _Ctx())
+        == "What format would you like the output in (e.g. Excel, PDF, "
+        "email, a dashboard)?"
+    )
+    assert interviewer.next_question(turns_six_answers, _Ctx()) is None
 
 
 def test_next_question_wraps_conversation_in_delimited_block_regardless_of_content():

@@ -1182,10 +1182,10 @@ def test_start_interview_returns_opening_question(monkeypatch, tmp_path):
     assert isinstance(started["question"], str) and started["question"]
 
 
-def test_interview_full_flow_completes_after_three_deterministic_answers(monkeypatch, tmp_path):
+def test_interview_full_flow_completes_after_six_deterministic_answers(monkeypatch, tmp_path):
     """With PROCESSFORGE_LLM_PROVIDER stripped (tests/conftest.py's autouse fixture),
-    stages.interviewer.next_question always falls back to its deterministic 3-step
-    ladder, keyed off the number of answers given so far: the 3rd answer causes
+    stages.interviewer.next_question always falls back to its deterministic 6-step
+    ladder, keyed off the number of answers given so far: the 6th answer causes
     _next_question_deterministic to return None, which completes the interview and
     must return the same shape /sessions returns."""
     _set_env(monkeypatch, tmp_path, rate_limit=100)
@@ -1220,12 +1220,36 @@ def test_interview_full_flow_completes_after_three_deterministic_answers(monkeyp
         tenant="acme",
     )
     assert third.status_code == 200
-    _assert_session_response_shape(third.json())
+    third_body = third.json()
+    assert third_body["session_id"] == session_id
+    assert isinstance(third_body["question"], str) and third_body["question"]
+
+    fourth = _answer_interview(
+        client, session_id, "The files live in a shared network drive.", token, tenant="acme"
+    )
+    assert fourth.status_code == 200
+    fourth_body = fourth.json()
+    assert fourth_body["session_id"] == session_id
+    assert isinstance(fourth_body["question"], str) and fourth_body["question"]
+
+    fifth = _answer_interview(
+        client, session_id, "Only rows where status is 'open'.", token, tenant="acme"
+    )
+    assert fifth.status_code == 200
+    fifth_body = fifth.json()
+    assert fifth_body["session_id"] == session_id
+    assert isinstance(fifth_body["question"], str) and fifth_body["question"]
+
+    sixth = _answer_interview(
+        client, session_id, "An Excel spreadsheet.", token, tenant="acme"
+    )
+    assert sixth.status_code == 200
+    _assert_session_response_shape(sixth.json())
 
 
 def test_interview_turn_cap_forces_completion_on_sixth_answer(monkeypatch, tmp_path):
     """Mock next_question to always want another question, so only the hard
-    _MAX_INTERVIEW_ANSWERS cap (not the deterministic 3-step ladder) can end the
+    _MAX_INTERVIEW_ANSWERS cap (not the deterministic ladder) can end the
     interview — confirms the 6th answer forces completion regardless."""
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]
@@ -1262,18 +1286,22 @@ def test_answer_on_already_complete_interview_returns_409(monkeypatch, tmp_path)
 
     _answer_interview(client, session_id, "We manually reconcile invoices every week.", token, tenant="acme")
     _answer_interview(client, session_id, "It takes about 2 hours each time.", token, tenant="acme")
-    completed = _answer_interview(
+    _answer_interview(
         client,
         session_id,
         "We'd like it automated so no one has to touch a spreadsheet.",
         token,
         tenant="acme",
     )
+    _answer_interview(client, session_id, "The files live in a shared network drive.", token, tenant="acme")
+    _answer_interview(client, session_id, "Only rows where status is 'open'.", token, tenant="acme")
+    completed = _answer_interview(client, session_id, "An Excel spreadsheet.", token, tenant="acme")
+
     assert completed.status_code == 200
 
-    fourth = _answer_interview(client, session_id, "One more thing.", token, tenant="acme")
+    seventh = _answer_interview(client, session_id, "One more thing.", token, tenant="acme")
 
-    assert fourth.status_code == 409
+    assert seventh.status_code == 409
 
 
 def test_answer_interview_wrong_tenant_returns_404(monkeypatch, tmp_path):
