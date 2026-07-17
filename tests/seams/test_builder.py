@@ -172,6 +172,88 @@ def test_builder_handoff_is_deterministic():
     assert first.spec["handoff"] == second.spec["handoff"]
 
 
+def test_builder_handoff_absorbs_interview_answers_and_shrinks_open_questions():
+    from stages import builder
+
+    recommendation = _recommendation(approval_state="approved")
+    task = _task()
+    opportunity = _opportunity(task_ids=[task.id])
+    turns = [
+        {"role": "question", "content": "About how long does this take, and how often do you do it?"},
+        {"role": "answer", "content": "About 30 minutes, daily."},
+        {"role": "question", "content": "What would you like the end result to be?"},
+        {"role": "answer", "content": "Invoices matched automatically."},
+        {
+            "role": "question",
+            "content": (
+                "Where do the input files or source data live (e.g. a folder, "
+                "an email inbox, another system)?"
+            ),
+        },
+        {"role": "answer", "content": "A shared drive folder called Invoices/Incoming."},
+        {
+            "role": "question",
+            "content": (
+                "Are there any filter rules or specific column values that "
+                "matter (e.g. only rows where status is 'open')?"
+            ),
+        },
+        {"role": "answer", "content": "Only rows where the status column is 'open'."},
+        {
+            "role": "question",
+            "content": "What format would you like the output in (e.g. Excel, PDF, email, a dashboard)?",
+        },
+        {"role": "answer", "content": "An Excel spreadsheet."},
+    ]
+
+    without_turns = builder.run((recommendation, opportunity, [task]), _Ctx())
+    with_turns = builder.run((recommendation, opportunity, [task], turns), _Ctx())
+
+    known_before = without_turns.spec["handoff"]["known"]
+    known_after = with_turns.spec["handoff"]["known"]
+    assert "input_file_location" not in known_before
+    assert "filter_rule" not in known_before
+    assert "output_format" not in known_before
+    assert known_after["input_file_location"] == "A shared drive folder called Invoices/Incoming."
+    assert known_after["filter_rule"] == "Only rows where the status column is 'open'."
+    assert known_after["output_format"] == "An Excel spreadsheet."
+    # Existing known facts are untouched by the new interview-derived keys.
+    for key in ("task", "frequency", "time_spent", "tools", "desired_outcome"):
+        assert known_after[key] == known_before[key]
+
+    open_questions_before = without_turns.spec["handoff"]["open_questions"]
+    open_questions_after = with_turns.spec["handoff"]["open_questions"]
+    assert any("input file live" in q for q in open_questions_before)
+    assert not any("input file live" in q for q in open_questions_after)
+    assert len(open_questions_after) < len(open_questions_before)
+
+
+def test_builder_handoff_ignores_answers_with_no_matching_question():
+    from stages import builder
+
+    recommendation = _recommendation(approval_state="approved")
+    task = _task()
+    opportunity = _opportunity(task_ids=[task.id])
+    # An answer with no preceding question turn, and a question turn whose
+    # wording doesn't match any of the three keyword groups — neither should
+    # ever be paired into `known`, and the input-file open question must
+    # still be present since no genuine answer to it was found.
+    turns = [
+        {"role": "answer", "content": "This should never be paired — no preceding question."},
+        {"role": "question", "content": "What's your favorite color?"},
+        {"role": "answer", "content": "Blue."},
+    ]
+
+    automation = builder.run((recommendation, opportunity, [task], turns), _Ctx())
+
+    known = automation.spec["handoff"]["known"]
+    assert "input_file_location" not in known
+    assert "filter_rule" not in known
+    assert "output_format" not in known
+    open_questions = automation.spec["handoff"]["open_questions"]
+    assert any("input file live" in q for q in open_questions)
+
+
 def test_builder_handoff_is_pure_json_serializable_data():
     import json
 

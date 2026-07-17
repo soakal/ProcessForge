@@ -249,6 +249,29 @@ that raises `AssertionError` if ever called — that the builder never calls `ct
 on any code path. This is additive to `automation.spec` (a JSON blob) only; no change to
 `contracts/records.py`, no `schema_version` bump.
 
+**The interview's three cycle-4 questions (input-file location, filter rule/column
+value, output format) now actually flow into that handoff.** `api/main.py`'s
+`build_automation` derives `session_id` from the already tenant-verified `Task`
+records it fetched (`tasks[0].session_id`; the id itself was never attacker-supplied,
+so calling the non-tenant-scoped `repo.list_turns(session_id)` directly with it is
+safe — same reasoning already documented above for the transcript endpoint) and
+passes the resulting turns as an optional 4th tuple element to `builder.run` — the
+existing 3-tuple call shape still works unmodified (`turns` defaults to `[]` via
+`recommendation, opportunity, tasks, *rest = inp`), so every pre-existing seam test
+passes unchanged. `stages/builder.py`'s new `_interview_answers` deterministically
+pairs an answer to one of the three questions by matching the immediately preceding
+question-role turn's text against a keyword group per question (works against both
+the deterministic ladder's exact wording and any LLM-generated phrasing of the same
+question) — never guesses when a matching question/answer pair isn't present. Present
+answers land as new `input_file_location`/`filter_rule`/`output_format` keys in
+`handoff.known`; a genuine `input_file_location` answer also drops the matching
+"where does the input file live" line from `handoff.open_questions` (the other two
+questions never had a corresponding `open_questions` entry to drop). Zero LLM calls
+in the new code path — `tests/seams/test_builder.py` adds two seam tests covering
+both the happy path (all three answers land, the open question shrinks) and the
+no-match path (an orphan answer or off-topic question is correctly ignored, not
+guessed into a slot).
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is

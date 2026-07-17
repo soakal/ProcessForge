@@ -538,8 +538,17 @@ def build_automation(
                 if task_row is not None:
                     tasks.append(Task(**task_row))
 
+        # Feed the interview Q&A into the builder's handoff too: session_id
+        # comes from an already tenant-verified Task fetched above (never
+        # attacker-supplied), so calling the non-tenant-scoped list_turns()
+        # directly with it is safe — same reasoning already documented for
+        # session_turns elsewhere. No turns (or no tasks) just yields an
+        # empty transcript, same as the pre-existing 3-tuple call shape.
+        session_id = tasks[0].session_id if tasks else None
+        turns = repo.list_turns(session_id) if session_id else []
+
         try:
-            automation = builder.run((recommendation, opportunity, tasks), ctx)
+            automation = builder.run((recommendation, opportunity, tasks, turns), ctx)
         except PermissionError:
             raise HTTPException(
                 status_code=409,

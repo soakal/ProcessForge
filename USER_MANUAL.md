@@ -418,6 +418,15 @@ ProcessForge which client/company this is for.
    shows up, it's because that detail genuinely hasn't been captured yet, and
    someone should fill it in before this automation is actually built for real.
 
+   If your interview answered where the input files live, what filter rules or
+   column values matter, and what output format you want, those three answers
+   now show up as known facts in this handoff automatically — and the matching
+   "where does the input file live" open question disappears, since it's no
+   longer actually open. This matching is done by simple, predictable text
+   matching against the question that was asked (never guessed by an AI) — if
+   an answer can't be confidently matched to one of those three questions, it's
+   left out rather than risk pairing it with the wrong question.
+
 
 
 4. **Give feedback and get a revised version** — if the automation isn't quite
