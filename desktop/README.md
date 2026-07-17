@@ -41,13 +41,35 @@ builds a single `--windowed` (no console window) `.exe`:
 
 ```powershell
 .\.venv\Scripts\pyinstaller.exe --windowed --onefile --name ProcessForgeTray desktop/tray_app.py
-.\.venv\Scripts\pyinstaller.exe --windowed --onefile --name ProcessForgeSetup desktop/setup_account.py
+.\.venv\Scripts\pyinstaller.exe --windowed --onefile --name ProcessForgeSetup --hidden-import logging.config desktop/setup_account.py
 ```
+
+`ProcessForgeSetup` needs `--hidden-import logging.config`: `create_account()` runs the real
+Alembic migration (`pipeline._migrate`), which loads `kb/migrations/env.py` dynamically (by
+file path, not a static `import`) — PyInstaller's analyzer never sees that file, so it never
+bundles the `logging.config` stdlib submodule `env.py` imports on its first line. Without this
+flag the built exe fails with `No module named 'logging.config'` the moment "Create account" is
+clicked. If you regenerate `ProcessForgeSetup.spec` some other way (e.g. `pyi-makespec`), add
+`'logging.config'` to its `hiddenimports=[]` list instead.
 
 The built exes land in:
 
 - `dist/ProcessForgeTray.exe`
 - `dist/ProcessForgeSetup.exe`
+
+**Move (or copy) both exes to the project root before running them** — they must sit
+next to `alembic.ini`, `.env`, and `kb/`:
+
+```powershell
+Copy-Item dist\ProcessForgeTray.exe, dist\ProcessForgeSetup.exe .
+```
+
+When frozen, each exe resolves the project root as *its own folder* (`_repo_root()` /
+`_project_root()` use `sys.executable`'s directory). From `dist/`, `ProcessForgeSetup.exe`
+can't find `alembic.ini` (fails with `No 'script_location' key found in configuration`) and
+would write to the wrong `kb/processforge.db`; `ProcessForgeTray.exe` can't find `.venv`.
+From the project root, all of that resolves correctly. The root `/ProcessForgeTray.exe` and
+`/ProcessForgeSetup.exe` are already gitignored.
 
 PyInstaller also creates a `build/` working directory and a `.spec` file
 (`ProcessForgeTray.spec`, `ProcessForgeSetup.spec`) next to the project
