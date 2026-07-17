@@ -5,3 +5,6 @@ __pycache__/
 *.db
 .council/state/*
 !.council/state/.gitkeep
+build/
+dist/
+*.spec
