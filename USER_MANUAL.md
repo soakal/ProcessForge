@@ -354,8 +354,13 @@ curl.exe -s "http://127.0.0.1:8010/interviews/THE_SESSION_ID/transcript?tenant=a
 ```
 
 This is read-only — it doesn't change anything, so it's safe to check as often as
-you like. (There's no page on the website for this yet — it's command-line only for
-now.)
+you like.
+
+*Using the website? Go to
+`http://127.0.0.1:8010/ui/interview/THE_SESSION_ID/transcript?tenant=acme` to see
+the same conversation laid out as a page instead of raw text — skip the command
+above. (There isn't yet a link to this page from the recommendation page — you'll
+need to type or paste the address yourself for now.)*
 
 ---
 

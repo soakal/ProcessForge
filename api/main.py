@@ -214,6 +214,18 @@ def ui_recommendation(recommendation_id: str, request: Request):
     )
 
 
+@app.get("/ui/interview/{session_id}/transcript")
+def ui_interview_transcript(session_id: str, request: Request):
+    # No server-side auth check — requireAuth() in transcript.html redirects
+    # to /ui/login client-side if there's no token, same as the rest of /ui.
+    # session_id is passed into the template so the inline script can embed
+    # it as a JS constant without re-parsing the URL, matching
+    # ui_recommendation's pattern.
+    return templates.TemplateResponse(
+        request, "transcript.html", {"session_id": session_id}
+    )
+
+
 @app.get("/ui/audit-log")
 def ui_audit_log(request: Request):
     # No server-side auth check — requireAuth() in audit-log.html redirects to

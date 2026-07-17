@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Transcript — ProcessForge{% endblock %}
+{% block content %}
+<h1>Interview Transcript</h1>
+<div id="transcript-missing" class="error-message"></div>
+<div id="transcript-turns"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+  requireAuth();
+
+  const sessionId = {{ session_id | tojson }};
+  const tenant = new URLSearchParams(window.location.search).get("tenant");
+
+  const missingBox = document.getElementById("transcript-missing");
+  const turnsBox = document.getElementById("transcript-turns");
+
+  function showFallback(message) {
+    turnsBox.style.display = "none";
+    missingBox.textContent = message;
+    missingBox.appendChild(document.createElement("br"));
+    const link = document.createElement("a");
+    link.href = "/ui";
+    link.textContent = "Back to dashboard";
+    missingBox.appendChild(link);
+  }
+
+  function renderTurns(turns) {
+    turnsBox.textContent = "";
+
+    if (turns.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "No turns recorded for this interview yet.";
+      turnsBox.appendChild(message);
+      return;
+    }
+
+    const sorted = turns.slice().sort((a, b) => a.turn_index - b.turn_index);
+
+    sorted.forEach((turn) => {
+      const entry = document.createElement("div");
+      entry.className = "transcript-turn";
+
+      const label = document.createElement("p");
+      const strong = document.createElement("strong");
+      strong.textContent = turn.role === "question" ? "Question" : "Answer";
+      label.appendChild(strong);
+      entry.appendChild(label);
+
+      const content = document.createElement("p");
+      content.textContent = turn.content;
+      entry.appendChild(content);
+
+      turnsBox.appendChild(entry);
+    });
+  }
+
+  if (!tenant) {
+    showFallback("Missing tenant — this page requires a tenant query parameter.");
+  } else {
+    (async () => {
+      let response;
+      try {
+        response = await fetchWithAuth(
+          "/interviews/" + sessionId + "/transcript?tenant=" + encodeURIComponent(tenant)
+        );
+      } catch (err) {
+        showFallback("Could not reach the server. Please try again.");
+        return;
+      }
+
+      if (response.status === 404) {
+        showFallback("Interview not found.");
+        return;
+      }
+
+      if (response.status === 401) {
+        showFallback("You are not authorized to view this transcript.");
+        return;
+      }
+
+      if (!response.ok) {
+        showFallback("Something went wrong. Please try again.");
+        return;
+      }
+
+      const turns = await response.json();
+      renderTurns(turns);
+    })();
+  }
+</script>
+{% endblock %}

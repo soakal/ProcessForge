@@ -175,9 +175,22 @@ via `repo.list_turns(session_id)`. Since `list_turns` itself is not
 tenant-scoped (it only filters by `session_id`), the endpoint always resolves
 `repo.get("sessions", session_id, tenant)` first and returns the identical 404
 on both an unknown id and a wrong tenant before ever calling `list_turns` —
-same isolation pattern as every other endpoint. No UI page yet (command-line/
-API only) and no link from the recommendation page — deliberately deferred to
-a later cycle; this change is backend-only.
+same isolation pattern as every other endpoint.
+
+A 7th `/ui` page now consumes that endpoint: `GET
+/ui/interview/{session_id}/transcript` (`api/main.py`'s `ui_interview_transcript`,
+`web/templates/transcript.html`) — same no-server-side-auth-check /
+`requireAuth()` / `session_id`-passed-into-the-template-for-`| tojson`
+pattern as `ui_recommendation`. Client-side JS fetches the transcript via
+`fetchWithAuth`, sorts turns by `turn_index` before rendering (belt-and-suspenders
+alongside the API's own ordering), and renders each turn with
+`textContent`/`createElement` only — no `innerHTML`, matching the rest of
+`/ui`. 404/401/network-error all fall back to the same "back to dashboard"
+pattern as `ui_recommendation`. **Deliberately no link to this page from
+`recommendations.html` yet** — `Recommendation` doesn't carry a `session_id`
+or transcript reference in its frozen contract, so wiring that link is
+separate plumbing left for a later cycle; this change only adds the standalone
+page and its route.
 
 **The frontend is now built too — ProcessForge is a complete, usable product.**
 6 pages under `/ui`, served by FastAPI directly (Jinja2 templates + vanilla

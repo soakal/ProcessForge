@@ -67,6 +67,22 @@ def test_ui_recommendation_renders_page():
     assert "some-fake-id" in response.text
 
 
+def test_ui_interview_transcript_renders_page():
+    client = _client()
+    response = client.get("/ui/interview/some-fake-id/transcript")
+    assert response.status_code == 200
+    # TestClient's GET never executes the inline fetch-on-load script against
+    # a real backend transcript, so this only confirms the static page
+    # structure is present: the session id embedded for the client-side
+    # script, and the turn_index-based comparator that guarantees turns are
+    # sorted into order once fetched (renderTurns() sorts by turn_index
+    # before appending any DOM nodes).
+    assert "some-fake-id" in response.text
+    assert "turn_index" in response.text
+    assert "sort(" in response.text
+    assert "innerHTML" not in response.text
+
+
 def test_ui_audit_log_renders_form():
     client = _client()
     response = client.get("/ui/audit-log")
