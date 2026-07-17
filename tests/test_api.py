@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sqlite3
 import time
@@ -739,6 +740,122 @@ def test_submit_automation_feedback_missing_token_rejected(monkeypatch, tmp_path
     )
 
     assert response.status_code == 401
+
+
+def test_link_automation_product_valid_url_persists(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    link_response = client.post(
+        f"/automations/{automation['id']}/link",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "product_url": "https://example.com/product/123",
+            "product_notes": "Matches our reconciliation tool.",
+        },
+    )
+
+    assert link_response.status_code == 200
+    linked = link_response.json()
+    assert linked["spec"]["product_url"] == "https://example.com/product/123"
+    assert linked["spec"]["product_notes"] == "Matches our reconciliation tool."
+
+    # Fetch the automation afterward directly from the DB (there is no GET
+    # /automations/{id} endpoint, so this mirrors this file's existing
+    # sqlite-verification style used by e.g. test_build_automation_*) and
+    # confirm the persisted spec still matches.
+    conn = sqlite3.connect(db_path)
+    try:
+        spec_json = conn.execute(
+            "SELECT spec FROM automations WHERE id = ?", (automation["id"],)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    persisted_spec = json.loads(spec_json)
+    assert persisted_spec["product_url"] == "https://example.com/product/123"
+    assert persisted_spec["product_notes"] == "Matches our reconciliation tool."
+
+
+def test_link_automation_product_malformed_url_rejected(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    for bad_url in [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "data:text/html,<script>alert(1)</script>",
+        "not-a-url",
+        "ftp://example.com/file",
+    ]:
+        response = client.post(
+            f"/automations/{automation['id']}/link",
+            params={"tenant": "acme"},
+            headers={"Authorization": f"Bearer {token}"},
+            json={"product_url": bad_url},
+        )
+        assert response.status_code == 422, f"expected 422 for {bad_url!r}"
+
+    # Confirm nothing was persisted from any of the rejected attempts.
+    conn = sqlite3.connect(db_path)
+    try:
+        spec_json = conn.execute(
+            "SELECT spec FROM automations WHERE id = ?", (automation["id"],)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    persisted_spec = json.loads(spec_json)
+    assert "product_url" not in persisted_spec
+
+
+def test_link_automation_product_wrong_tenant_returns_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+    _approve_recommendation(client, recommendation["id"], token, tenant="acme")
+
+    build_response = client.post(
+        f"/recommendations/{recommendation['id']}/build",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert build_response.status_code == 200
+    automation = build_response.json()
+
+    response = client.post(
+        f"/automations/{automation['id']}/link",
+        params={"tenant": "other-tenant"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"product_url": "https://example.com/product/123"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_refine_recommendation_regenerates_handoff_and_new_revision(monkeypatch, tmp_path):

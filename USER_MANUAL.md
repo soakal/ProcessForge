@@ -459,6 +459,23 @@ ProcessForge which client/company this is for.
    interview to attach them to, it reports an error instead of quietly
    ignoring your answers and returning what looks like a normal new version.
 
+6. **Link a product/tool you found for this automation** — once you've found an
+   existing product or tool (a Zapier recipe, a vendor's app, etc.) that matches
+   what this automation needs, save a link to it on the automation record so it's
+   easy to find again later, along with an optional note about why it's a good
+   fit:
+
+   ```powershell
+   curl.exe -s -X POST "http://127.0.0.1:8010/automations/THE_AUTOMATION_ID/link?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"product_url\": \"https://example.com/some-product\", \"product_notes\": \"Handles the CSV export step out of the box.\"}"
+   ```
+
+   `product_notes` is optional — you can leave it out and just save the link.
+   The link must start with `http://` or `https://`; anything else (a typo, or a
+   web address that's missing a scheme) is rejected with an error rather than
+   saved, since a bad link here would otherwise show up as a broken or unsafe
+   clickable link on the website in a future update. This doesn't run or open
+   the link — it just stores the address as text for a person to click later.
+
 **A note on privacy between clients:** if you try to look up, approve, or build
 something using the wrong `tenant` value (e.g. a typo, or accidentally mixing up
 two clients), ProcessForge treats it exactly the same as if that ID didn't exist at

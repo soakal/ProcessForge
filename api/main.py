@@ -17,12 +17,13 @@ import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from auth.hashing import hash_password, verify_password
 from auth.repository import AuthRepository
@@ -124,6 +125,35 @@ class AutomationOut(BaseModel):
 
 class FeedbackRequest(BaseModel):
     feedback: str
+
+
+class LinkRequest(BaseModel):
+    # This value will become a clickable href in a future cycle, so validation
+    # uses a scheme ALLOW-list (http/https only), never a blocklist — rejects
+    # javascript:/file:/data:/any other scheme as well as malformed URLs.
+    # max_length bounds mirror the DoS defense-in-depth pattern established
+    # for RefineRequest.turns (bounded input against unbounded storage/render
+    # cost) rather than any functional requirement of a real product URL/note.
+    product_url: str = Field(max_length=2048)
+    product_notes: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("product_url")
+    @classmethod
+    def _require_http_scheme(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            raise ValueError("product_url must be a well-formed http:// or https:// URL")
+        # Reject embedded userinfo (e.g. http://trusted.com@evil.com/ or
+        # http://user:pass@evil.com) — structurally a valid http(s) URL with
+        # a non-empty netloc, so the checks above alone would accept it, but
+        # it's a classic URL-spoofing pattern where the pre-'@' text reads as
+        # a trusted hostname while the browser actually navigates to
+        # whatever follows '@'. Rejecting it now costs nothing and matters
+        # precisely because this value is destined to become a clickable
+        # href a person will trust in a future cycle.
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("product_url must not contain embedded userinfo (user:pass@ or user@)")
+        return value
 
 
 class RefineTurn(BaseModel):
@@ -694,6 +724,39 @@ def submit_automation_feedback(
         revised = qa.run((automation, body.feedback), ctx)
         repo.put("automations", revised.model_dump(mode="json"))
         return AutomationOut(**revised.model_dump())
+    finally:
+        repo.close()
+
+
+@app.post("/automations/{automation_id}/link", response_model=AutomationOut)
+def link_automation_product(
+    automation_id: str,
+    tenant: str,
+    body: LinkRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> AutomationOut:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        row = repo.get("automations", automation_id, tenant)
+        if row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        automation = Automation(**row)
+        # product_url/product_notes are pure data stored inside the existing
+        # free-form spec: dict JSON blob — no contracts/records.py change,
+        # no schema_version bump.
+        automation.spec["product_url"] = body.product_url
+        automation.spec["product_notes"] = body.product_notes
+        repo.put("automations", automation.model_dump(mode="json"))
+        return AutomationOut(**automation.model_dump())
     finally:
         repo.close()
 

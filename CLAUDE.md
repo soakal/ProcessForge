@@ -299,6 +299,24 @@ is free-form data inside the existing `spec: dict` JSON blob — no change to
 revision-bumped Automation whose handoff doesn't reflect them; an empty
 `turns` list still tolerates a missing session the same as before.
 
+**`POST /automations/{id}/link`** saves a reference to an existing product/tool
+an operator found for an Automation (e.g. a Zapier recipe, a vendor's app) —
+backend-only this cycle, deliberately not wired into any `/ui` template or
+route yet (that clickable-link display is a separate, later cycle's job). New
+`LinkRequest` Pydantic model: `product_url: str` (required) + optional
+`product_notes: str | None`. `product_url` is validated with a scheme
+ALLOW-list via a `field_validator` (`urlparse(value).scheme in ("http",
+"https")` and a non-empty `netloc`) — not a blocklist — since this value will
+become a clickable `href` in that future cycle; `javascript:`/`file:`/`data:`/
+any other scheme, and malformed URLs, are rejected with FastAPI's normal `422`
+request-validation response before the handler even runs. Same tenant-scoped
+identical-404 discipline as every other automation endpoint (mirrors
+`submit_automation_feedback`'s `repo.get("automations", automation_id,
+tenant)` pattern exactly). `product_url`/`product_notes` are stored as two new
+keys directly inside the existing free-form `automation.spec: dict` JSON blob
+via `repo.put` — no change to `contracts/records.py`, no `schema_version`
+bump. Both fields are pure data, never executed or evaluated.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is
