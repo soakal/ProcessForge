@@ -90,30 +90,59 @@ class ServerController:
 def main() -> int:
     """Thin pystray wrapper around ServerController. Only imported/executed
     when this module is run directly — never at import time."""
+    import webbrowser
+
     import pystray
     from PIL import Image, ImageDraw
 
     controller = ServerController()
     controller.start()
 
-    def make_icon_image() -> Image.Image:
-        image = Image.new("RGB", (64, 64), "black")
+    def make_icon_image(running: bool) -> Image.Image:
+        color = "green" if running else "red"
+        image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
-        draw.rectangle((16, 16, 48, 48), fill="white")
+        draw.ellipse((8, 8, 56, 56), fill=color)
         return image
+
+    def on_open_processforge(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
+        webbrowser.open("http://127.0.0.1:8010/ui/login")
+
+    def on_start(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
+        controller.start()
+        icon.icon = make_icon_image(controller.is_running())
+
+    def on_stop(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
+        controller.stop()
+        icon.icon = make_icon_image(controller.is_running())
 
     def on_restart(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
         controller.restart()
+        icon.icon = make_icon_image(controller.is_running())
+
+    def on_open_settings(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
+        import os
+
+        os.startfile(controller.project_root / ".env")
 
     def on_quit(icon: "pystray.Icon", item: "pystray.MenuItem") -> None:
         controller.stop()
         icon.stop()
 
     menu = pystray.Menu(
-        pystray.MenuItem("Restart server", on_restart),
+        pystray.MenuItem("Open ProcessForge", on_open_processforge),
+        pystray.MenuItem("Start Server", on_start),
+        pystray.MenuItem("Stop Server", on_stop),
+        pystray.MenuItem("Restart Server", on_restart),
+        pystray.MenuItem("Open Settings", on_open_settings),
         pystray.MenuItem("Quit", on_quit),
     )
-    icon = pystray.Icon("ProcessForge", make_icon_image(), "ProcessForge", menu)
+    icon = pystray.Icon(
+        "ProcessForge",
+        make_icon_image(controller.is_running()),
+        "ProcessForge",
+        menu,
+    )
     icon.run()
     return 0
 
