@@ -2,6 +2,7 @@
 persisting every record via KBSink. No LLM calls — stages here are deterministic."""
 from __future__ import annotations
 import os
+import sys
 import threading
 import uuid
 from dataclasses import dataclass
@@ -16,7 +17,15 @@ from kb.repository import KBRepository
 from sinks.kb_sink import KBSink
 from stages import interviewer, mapper, analyzer, architect
 
-_REPO_ROOT = Path(__file__).resolve().parent
+
+def _repo_root() -> Path:
+    if getattr(sys, "frozen", False):
+        # PyInstaller --onefile extracts to a temp dir at runtime, so
+        # Path(__file__) would resolve inside that temp dir. Use the
+        # directory containing the actual .exe instead.
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
 
 # FastAPI runs sync handlers in a threadpool, so concurrent requests can call
 # _migrate() at the same time. Serialize the os.environ mutation + Alembic
@@ -53,7 +62,7 @@ class SessionResult:
 def _migrate(db_path: str) -> None:
     with _migrate_lock:
         os.environ["PROCESSFORGE_DB_PATH"] = db_path
-        cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+        cfg = Config(str(_repo_root() / "alembic.ini"))
         command.upgrade(cfg, "head")
 
 
