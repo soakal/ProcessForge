@@ -212,6 +212,15 @@ def test_ui_businesses_renders_form():
     # reached via per-row deep-links in a later cycle).
     assert '<a href="/ui/businesses">Businesses</a>' in response.text
     assert '<a href="/ui/businesses/delete">Delete Business</a>' not in response.text
+    # Item 11: per-business Sessions expansion — fetch URL, link
+    # construction, and empty-state text must all be present in the
+    # rendered script, and the page must stay innerHTML-free.
+    assert '"/businesses/" + encodeURIComponent(business.id) + "/sessions?tenant=" + encodeURIComponent(tenant)' in response.text
+    assert '"/ui/interview/" +' in response.text
+    assert '"/transcript?tenant="' in response.text
+    assert '"/ui/recommendations/" +' in response.text
+    assert "View recommendation" in response.text
+    assert "No interviews yet." in response.text
 
 
 def test_ui_businesses_delete_renders_form():

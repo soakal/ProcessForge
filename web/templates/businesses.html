@@ -30,7 +30,57 @@
     tenantInput.value = lastTenant;
   }
 
-  function renderResults(businesses) {
+  // Renders the sessions expansion for one business into `container`
+  // (cleared and repopulated on every fetch). Mirrors the empty-state /
+  // link-construction shape described in FEATURE-SPEC item 11.
+  function renderSessions(container, tenant, sessions) {
+    container.textContent = "";
+
+    if (sessions.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "No interviews yet.";
+      container.appendChild(message);
+      return;
+    }
+
+    const list = document.createElement("ul");
+    sessions.forEach((session) => {
+      const item = document.createElement("li");
+
+      const statusLine = document.createElement("p");
+      statusLine.textContent = "Status: " + session.status;
+      item.appendChild(statusLine);
+
+      const startedLine = document.createElement("p");
+      startedLine.textContent = "Started: " + (session.started_at || "not yet started");
+      item.appendChild(startedLine);
+
+      const transcriptLink = document.createElement("a");
+      transcriptLink.href =
+        "/ui/interview/" +
+        encodeURIComponent(session.id) +
+        "/transcript?tenant=" +
+        encodeURIComponent(tenant);
+      transcriptLink.textContent = "Transcript";
+      item.appendChild(transcriptLink);
+
+      session.recommendation_ids.forEach((recommendationId) => {
+        const recommendationLink = document.createElement("a");
+        recommendationLink.href =
+          "/ui/recommendations/" +
+          encodeURIComponent(recommendationId) +
+          "?tenant=" +
+          encodeURIComponent(tenant);
+        recommendationLink.textContent = "View recommendation";
+        item.appendChild(recommendationLink);
+      });
+
+      list.appendChild(item);
+    });
+    container.appendChild(list);
+  }
+
+  function renderResults(businesses, tenant) {
     resultsBox.textContent = "";
 
     if (businesses.length === 0) {
@@ -43,7 +93,7 @@
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    ["Name", "ID", "Sessions"].forEach((label) => {
+    ["Name", "ID", "Sessions", "Actions"].forEach((label) => {
       const th = document.createElement("th");
       th.textContent = label;
       headerRow.appendChild(th);
@@ -66,6 +116,61 @@
       const countCell = document.createElement("td");
       countCell.textContent = String(business.session_count);
       row.appendChild(countCell);
+
+      const actionsCell = document.createElement("td");
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.textContent = "Sessions";
+      actionsCell.appendChild(toggleButton);
+
+      const sessionsError = document.createElement("div");
+      sessionsError.className = "error-message";
+      actionsCell.appendChild(sessionsError);
+
+      const sessionsBox = document.createElement("div");
+      sessionsBox.style.display = "none";
+      actionsCell.appendChild(sessionsBox);
+
+      let sessionsLoaded = false;
+      let expanded = false;
+
+      toggleButton.addEventListener("click", async () => {
+        expanded = !expanded;
+        sessionsBox.style.display = expanded ? "block" : "none";
+        toggleButton.textContent = expanded ? "Hide Sessions" : "Sessions";
+
+        if (!expanded || sessionsLoaded) {
+          return;
+        }
+
+        sessionsError.textContent = "";
+
+        let response;
+        try {
+          response = await fetchWithAuth(
+            "/businesses/" + encodeURIComponent(business.id) + "/sessions?tenant=" + encodeURIComponent(tenant)
+          );
+        } catch (err) {
+          sessionsError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (response.status === 401) {
+          sessionsError.textContent = "You are not authorized to view sessions.";
+          return;
+        }
+
+        if (!response.ok) {
+          sessionsError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        sessionsLoaded = true;
+        const sessions = await response.json();
+        renderSessions(sessionsBox, tenant, sessions);
+      });
+
+      row.appendChild(actionsCell);
 
       tbody.appendChild(row);
     });
@@ -101,7 +206,7 @@
     }
 
     const businesses = await response.json();
-    renderResults(businesses);
+    renderResults(businesses, tenant);
   });
 </script>
 {% endblock %}
