@@ -101,6 +101,10 @@ actually works now.)
   number. If someone goes over the limit, they get an error response that says
   "Rate limit exceeded" — that just means slow down: wait a minute and send the
   request again.
+- **`PROCESSFORGE_MAX_INTERVIEW_ANSWERS`** — this caps how many answers an
+  interview conversation (see below) will collect before it's forced to finish,
+  even if more questions would otherwise be asked. You can leave this blank to
+  use the built-in default (12 answers), or set your own number.
 
 Everything else in `.env` (the lines starting with `PROCESSFORGE_LLM_`,
 `PROCESSFORGE_MODEL_`, and `PROCESSFORGE_OLLAMA_HOST`) is about connecting an AI
@@ -356,8 +360,9 @@ Each time, you'll get back one of two things:
 Without an AI service connected, this always takes exactly 6 answers (a fixed,
 predictable set of questions: how long/how often, desired outcome, where the input
 files or source data live, any filter rules or specific column values that matter,
-and the desired output format). With one connected, ProcessForge decides on its own
-when it has enough information — it will never ask more than 6 questions total,
+and the desired output format), regardless of the cap below. With one connected,
+ProcessForge decides on its own when it has enough information — it will never ask
+more than `PROCESSFORGE_MAX_INTERVIEW_ANSWERS` questions total (12 by default),
 even if it would otherwise keep going, so a conversation can't run forever.
 
 **Once a conversation is finished, that session is done** — sending another answer

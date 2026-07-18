@@ -1730,10 +1730,11 @@ def test_interview_full_flow_completes_after_six_deterministic_answers(monkeypat
     _assert_session_response_shape(sixth.json())
 
 
-def test_interview_turn_cap_forces_completion_on_sixth_answer(monkeypatch, tmp_path):
+def test_interview_turn_cap_forces_completion_at_default_twelfth_answer(monkeypatch, tmp_path):
     """Mock next_question to always want another question, so only the hard
-    _MAX_INTERVIEW_ANSWERS cap (not the deterministic ladder) can end the
-    interview — confirms the 6th answer forces completion regardless."""
+    _max_interview_answers() cap (not the deterministic ladder) can end the
+    interview — confirms the default cap of 12 forces completion on the 12th
+    answer, and not before."""
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]
     client = _client()
@@ -1746,14 +1747,111 @@ def test_interview_turn_cap_forces_completion_on_sixth_answer(monkeypatch, tmp_p
     started = _start_interview(client, token, tenant="acme")
     session_id = started["session_id"]
 
-    for i in range(5):
+    for i in range(11):
         response = _answer_interview(client, session_id, f"Answer {i + 1}.", token, tenant="acme")
         assert response.status_code == 200
         body = response.json()
         assert body["session_id"] == session_id
         assert body["question"] == "Tell me more?"
 
-    sixth = _answer_interview(client, session_id, "Answer 6.", token, tenant="acme")
+    twelfth = _answer_interview(client, session_id, "Answer 12.", token, tenant="acme")
+    assert twelfth.status_code == 200
+    _assert_session_response_shape(twelfth.json())
+
+
+def test_interview_turn_cap_env_override_forces_completion_at_configured_value(monkeypatch, tmp_path):
+    """PROCESSFORGE_MAX_INTERVIEW_ANSWERS=8 lowers the cap: with next_question
+    always wanting another question, completion is forced on the 8th answer."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    monkeypatch.setenv("PROCESSFORGE_MAX_INTERVIEW_ANSWERS", "8")
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    monkeypatch.setattr(
+        "stages.interviewer.next_question", lambda turns, ctx: "Tell me more?"
+    )
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    for i in range(7):
+        response = _answer_interview(client, session_id, f"Answer {i + 1}.", token, tenant="acme")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["session_id"] == session_id
+        assert body["question"] == "Tell me more?"
+
+    eighth = _answer_interview(client, session_id, "Answer 8.", token, tenant="acme")
+    assert eighth.status_code == 200
+    _assert_session_response_shape(eighth.json())
+
+
+def _assert_interview_cap_falls_back_to_default_twelve(monkeypatch, tmp_path, raw_env_value):
+    """Shared body for the blank/non-int/zero -> default-12 fallback cases."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    monkeypatch.setenv("PROCESSFORGE_MAX_INTERVIEW_ANSWERS", raw_env_value)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    monkeypatch.setattr(
+        "stages.interviewer.next_question", lambda turns, ctx: "Tell me more?"
+    )
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    for i in range(11):
+        response = _answer_interview(client, session_id, f"Answer {i + 1}.", token, tenant="acme")
+        assert response.status_code == 200
+        assert response.json()["question"] == "Tell me more?"
+
+    twelfth = _answer_interview(client, session_id, "Answer 12.", token, tenant="acme")
+    assert twelfth.status_code == 200
+    _assert_session_response_shape(twelfth.json())
+
+
+def test_interview_turn_cap_env_blank_falls_back_to_default_twelve(monkeypatch, tmp_path):
+    _assert_interview_cap_falls_back_to_default_twelve(monkeypatch, tmp_path, "")
+
+
+def test_interview_turn_cap_env_non_integer_falls_back_to_default_twelve(monkeypatch, tmp_path):
+    _assert_interview_cap_falls_back_to_default_twelve(monkeypatch, tmp_path, "garbage")
+
+
+def test_interview_turn_cap_env_zero_falls_back_to_default_twelve(monkeypatch, tmp_path):
+    _assert_interview_cap_falls_back_to_default_twelve(monkeypatch, tmp_path, "0")
+
+
+def test_interview_real_fallback_ladder_still_completes_at_six_with_cap_raised(monkeypatch, tmp_path):
+    """Locks in that raising the cap doesn't change the no-provider deterministic
+    fallback ladder's own independent 6-answer length (PROCESSFORGE_LLM_PROVIDER
+    is stripped by tests/conftest.py's autouse fixture, so next_question always
+    falls back to stages.interviewer._next_question_deterministic here)."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    monkeypatch.setenv("PROCESSFORGE_MAX_INTERVIEW_ANSWERS", "12")
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+
+    answers = [
+        "We manually reconcile invoices every week.",
+        "It takes about 2 hours each time.",
+        "We'd like it automated so no one has to touch a spreadsheet.",
+        "The files live in a shared network drive.",
+        "Only rows where status is 'open'.",
+        "An Excel spreadsheet.",
+    ]
+    for answer in answers[:-1]:
+        response = _answer_interview(client, session_id, answer, token, tenant="acme")
+        assert response.status_code == 200
+        assert isinstance(response.json()["question"], str) and response.json()["question"]
+
+    sixth = _answer_interview(client, session_id, answers[-1], token, tenant="acme")
     assert sixth.status_code == 200
     _assert_session_response_shape(sixth.json())
 

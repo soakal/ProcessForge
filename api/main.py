@@ -64,10 +64,12 @@ _INTERVIEW_OPENER = (
     "What task would you like ProcessForge to help you think about automating? "
     "Describe it in your own words."
 )
-# Hard cap on how many answers a multi-turn interview will collect before it is
-# forced to completion, even if stages.interviewer.next_question keeps asking
-# for more — this bounds the interview to a finite number of turns.
-_MAX_INTERVIEW_ANSWERS = 6
+# Default hard cap on how many answers a multi-turn interview will collect
+# before it is forced to completion, even if stages.interviewer.next_question
+# keeps asking for more — this bounds the interview to a finite number of
+# turns. Overridable per-deployment via PROCESSFORGE_MAX_INTERVIEW_ANSWERS
+# (see _max_interview_answers()).
+_DEFAULT_MAX_INTERVIEW_ANSWERS = 12
 
 
 class SessionRequest(BaseModel):
@@ -180,9 +182,9 @@ class RefineRequest(BaseModel):
     # number of repo.add_turn() calls (each does an O(n) COUNT(*) over
     # session_turns, so an unbounded list is a self-inflicted quadratic-cost
     # DoS vector for an authenticated caller). This is unrelated to
-    # _MAX_INTERVIEW_ANSWERS, which gates a different flow's completion logic,
-    # not raw request size — refine still accepts as many turns as a normal
-    # follow-up would ever need.
+    # _max_interview_answers(), which gates a different flow's completion
+    # logic, not raw request size — refine still accepts as many turns as a
+    # normal follow-up would ever need.
     turns: list[RefineTurn] = Field(default_factory=list, max_length=50)
 
 
@@ -215,6 +217,21 @@ def _check_rate_limit(client_host: str) -> None:
     _rate_limit_buckets[key] += 1
     if _rate_limit_buckets[key] > limit:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+def _max_interview_answers() -> int:
+    """Read PROCESSFORGE_MAX_INTERVIEW_ANSWERS fresh on every call (same
+    per-call-read convention as _check_rate_limit, so tests can monkeypatch
+    the env var without needing to reload this module). Blank, non-integer,
+    or less-than-1 values all fall back to _DEFAULT_MAX_INTERVIEW_ANSWERS."""
+    raw_cap = os.environ.get("PROCESSFORGE_MAX_INTERVIEW_ANSWERS", "")
+    try:
+        cap = int(raw_cap) if raw_cap.strip() else _DEFAULT_MAX_INTERVIEW_ANSWERS
+    except ValueError:
+        cap = _DEFAULT_MAX_INTERVIEW_ANSWERS
+    if cap < 1:
+        cap = _DEFAULT_MAX_INTERVIEW_ANSWERS
+    return cap
 
 
 def _open_repo(db_path: str) -> tuple[KBRepository, _Ctx]:
@@ -408,7 +425,7 @@ def answer_interview(
         # from ctx.session_id by stages.interviewer.run) would persist blank.
         ctx = _Ctx(repo, session_id=session_id)
 
-        if answer_count >= _MAX_INTERVIEW_ANSWERS:
+        if answer_count >= _max_interview_answers():
             # Cap hit: force completion, skip asking for another answer.
             question = None
         else:
@@ -732,8 +749,8 @@ def refine_recommendation(
             )
         if session_id is not None:
             # Append the refine request's follow-up Q&A pairs as new
-            # session_turns. Deliberately NOT gated by _MAX_INTERVIEW_ANSWERS —
-            # that cap only governs the original /interviews/{id}/answer
+            # session_turns. Deliberately NOT gated by _max_interview_answers()
+            # — that cap only governs the original /interviews/{id}/answer
             # flow; refine is a separate flow with its own turns.
             for turn in body.turns:
                 repo.add_turn(session_id, "question", turn.question)

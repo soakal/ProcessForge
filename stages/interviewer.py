@@ -146,10 +146,13 @@ def _next_question_deterministic(answer_count: int) -> str | None:
 
     Ladder: 1 -> time/frequency, 2 -> desired outcome, 3 -> input-file
     location, 4 -> filter rule/column values, 5 -> desired output format,
-    6+ -> done (None). This stays comfortably inside the API layer's
-    separate 6-answer hard cap (`_MAX_INTERVIEW_ANSWERS` in `api/main.py`),
-    which forces completion before `next_question` is even called once that
-    cap is reached — this function never needs to enforce it itself."""
+    6+ -> done (None). This ladder always completes at 6 regardless of the
+    API layer's separate, env-configurable answer cap (`_max_interview_answers()`
+    in `api/main.py`, default 12 via `PROCESSFORGE_MAX_INTERVIEW_ANSWERS`),
+    which forces completion before `next_question` is even called if that
+    cap is reached first — this function never needs to enforce it itself,
+    and a raised cap does not change the fallback ladder's own 6-answer
+    length."""
     if answer_count <= 1:
         return "About how long does this take, and how often do you do it?"
     if answer_count == 2:

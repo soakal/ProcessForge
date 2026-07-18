@@ -161,9 +161,14 @@ rule/column values, then desired output format, then done (the ladder in
 `stages/interviewer.py`'s `_next_question_deterministic`; the LLM-first
 prompt's goal statement in `_build_next_question_messages` asks about the
 same set of dimensions, so both paths probe the same substantive ground).
-**Hard-capped at 6 answers regardless of what an LLM would ask** — enforced at the
-API layer, checked before `next_question` is even called, so a runaway
-adaptive conversation can't happen. Once
+**Hard-capped at `PROCESSFORGE_MAX_INTERVIEW_ANSWERS` answers (default 12)
+regardless of what an LLM would ask** — enforced at the API layer via
+`_max_interview_answers()` (env read fresh per call, same defensive-parse
+convention as `_check_rate_limit`: blank/non-integer/`<1` all fall back to
+the default), checked before `next_question` is even called, so a runaway
+adaptive conversation can't happen. The no-provider deterministic fallback
+ladder in `stages/interviewer.py` still always completes at exactly 6
+answers on its own, independent of this cap. Once
 complete, reuses `pipeline.py`'s `_finish_pipeline` (extracted from
 `run_session` in a byte-for-byte-behavior-preserving refactor) to run
 mapper→analyzer→architect and return the exact same response shape
@@ -280,7 +285,7 @@ interview. Same tenant-scoped identical-404 discipline as every other endpoint;
 does (never attacker-supplied), so calling the non-tenant-scoped
 `repo.add_turn`/`list_turns` with it is safe. The request body's
 `turns: [{question, answer}, ...]` are appended to `session_turns` via
-`repo.add_turn` — deliberately NOT subject to `_MAX_INTERVIEW_ANSWERS` (that cap only
+`repo.add_turn` — deliberately NOT subject to `_max_interview_answers()` (that cap only
 governs the original `/interviews/{id}/answer` flow) — and `builder.run` is re-run
 against the now-fuller turns to regenerate `handoff` from scratch, same deterministic,
 zero-`ctx.complete()` path as `build_automation`. The result is persisted as a
@@ -437,6 +442,12 @@ with the same `.page-intro`/`.next-step` string assertions used for every
 other page. **Item 7's four-slice buildout is complete: all 7 `/ui` pages now
 carry the plain-language intro/next-step pattern.**
 
+**`docs/FEATURE-SPEC-dashboard-and-users.md` items are landing one per council
+cycle.** Item 1 (delete_business FK fix for interview-created businesses) and
+Item 2 (env-configurable interview answer cap, `PROCESSFORGE_MAX_INTERVIEW_ANSWERS`,
+default raised from the old hard-coded 6 to 12) are both done; see that doc for
+the remaining items.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is
@@ -469,7 +480,7 @@ Runs `pip-audit` against `requirements.lock.txt` then `pytest -q`. A failing pip
 
 ## Env vars
 
-See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY`/`PROCESSFORGE_LLM_PROVIDER` for `llm/client.py`, `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` for the API, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging. No env var for API auth anymore — operator accounts are created via `python -m auth.users create <username>` (see `auth/users.py`), not configured in `.env`.
+See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY`/`PROCESSFORGE_LLM_PROVIDER` for `llm/client.py`, `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` and `PROCESSFORGE_MAX_INTERVIEW_ANSWERS` for the API, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging. No env var for API auth anymore — operator accounts are created via `python -m auth.users create <username>` (see `auth/users.py`), not configured in `.env`.
 
 ## Keeping the user manual current
 
