@@ -221,6 +221,12 @@ def test_ui_businesses_renders_form():
     assert '"/ui/recommendations/" +' in response.text
     assert "View recommendation" in response.text
     assert "No interviews yet." in response.text
+    # Item 12: inline rename — Save posts to the edit endpoint, a per-row
+    # error branch exists, and the page stays innerHTML-free (checked above).
+    assert '"/businesses/" + encodeURIComponent(business.id) + "/edit?tenant=" + encodeURIComponent(tenant)' in response.text
+    assert "Rename" in response.text
+    assert "Business not found." in response.text
+    assert "Name must be between 1 and 500 characters." in response.text
 
 
 def test_ui_businesses_delete_renders_form():

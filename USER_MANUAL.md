@@ -538,6 +538,14 @@ don't have to retype it on every visit. This page replaces the old "Delete
 Business" shortcut in the site's navigation bar — the delete page described below
 still exists and is still reachable, just not from the nav bar directly.
 
+Each business row also has a "Rename" button. Select it to reveal a text box
+already filled in with the business's current name — edit it and select "Save"
+to rename the business right there on the page, or "Cancel" to back out without
+changing anything. Renaming a business does not delete or affect anything else
+about it, so there's no "type it again to confirm" step here — unlike the
+permanent deletes described below, a rename is easy to undo by just renaming it
+back. Every rename is recorded in the audit log, same as an approval.
+
 ---
 
 ## Seeing who approved what (the audit log) — command-line way

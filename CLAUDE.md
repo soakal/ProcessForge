@@ -462,8 +462,17 @@ session count via `createElement`/`textContent` only, same zero-`innerHTML`
 discipline as every other page. `base.html`'s nav "Delete Business" link is
 replaced with `<a href="/ui/businesses">Businesses</a>`; the delete page and
 its route are untouched and still reachable directly, just not from the nav
-bar — a later cycle deep-links to it per-row) are done; see that doc for the
-remaining items.
+bar — a later cycle deep-links to it per-row), Item 11 (UI: each business row
+on `/ui/businesses` gets a "Sessions" toggle that fetches `GET
+/businesses/{id}/sessions` on first expand and renders status, `started_at`,
+a transcript link, and any recommendation links, or a "No interviews yet"
+text node when empty), and Item 12 (UI: each business row also gets a
+"Rename" toggle — a text input prefilled with the current name plus
+Save/Cancel, no confirm-retype since a rename is non-destructive and
+audit-logged (D2); Save posts to the already-shipped `POST
+/businesses/{business_id}/edit` endpoint from Item 7 and updates the row's
+name cell in place from the response on success, or shows a per-row error
+otherwise) are done; see that doc for the remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

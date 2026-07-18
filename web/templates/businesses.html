@@ -131,6 +131,92 @@
       sessionsBox.style.display = "none";
       actionsCell.appendChild(sessionsBox);
 
+      // Item 12: inline rename. Non-destructive, so no confirm-retype (D2) —
+      // just a Save/Cancel around a prefilled input, mirroring the
+      // Sessions toggle's show/hide shape above.
+      const renameButton = document.createElement("button");
+      renameButton.type = "button";
+      renameButton.textContent = "Rename";
+      actionsCell.appendChild(renameButton);
+
+      const renameError = document.createElement("div");
+      renameError.className = "error-message";
+      actionsCell.appendChild(renameError);
+
+      const renameBox = document.createElement("div");
+      renameBox.style.display = "none";
+      const renameInput = document.createElement("input");
+      renameInput.type = "text";
+      renameBox.appendChild(renameInput);
+      const renameSaveButton = document.createElement("button");
+      renameSaveButton.type = "button";
+      renameSaveButton.textContent = "Save";
+      renameBox.appendChild(renameSaveButton);
+      const renameCancelButton = document.createElement("button");
+      renameCancelButton.type = "button";
+      renameCancelButton.textContent = "Cancel";
+      renameBox.appendChild(renameCancelButton);
+      actionsCell.appendChild(renameBox);
+
+      let renaming = false;
+
+      renameButton.addEventListener("click", () => {
+        renaming = !renaming;
+        renameError.textContent = "";
+        renameInput.value = nameCell.textContent;
+        renameBox.style.display = renaming ? "block" : "none";
+      });
+
+      renameCancelButton.addEventListener("click", () => {
+        renaming = false;
+        renameBox.style.display = "none";
+        renameError.textContent = "";
+      });
+
+      renameSaveButton.addEventListener("click", async () => {
+        renameError.textContent = "";
+
+        let renameResponse;
+        try {
+          renameResponse = await fetchWithAuth(
+            "/businesses/" + encodeURIComponent(business.id) + "/edit?tenant=" + encodeURIComponent(tenant),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: renameInput.value }),
+            }
+          );
+        } catch (err) {
+          renameError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (renameResponse.status === 401) {
+          renameError.textContent = "You are not authorized to rename this business.";
+          return;
+        }
+
+        if (renameResponse.status === 404) {
+          renameError.textContent = "Business not found.";
+          return;
+        }
+
+        if (renameResponse.status === 422) {
+          renameError.textContent = "Name must be between 1 and 500 characters.";
+          return;
+        }
+
+        if (!renameResponse.ok) {
+          renameError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const updated = await renameResponse.json();
+        nameCell.textContent = updated.name;
+        renaming = false;
+        renameBox.style.display = "none";
+      });
+
       let sessionsLoaded = false;
       let expanded = false;
 
