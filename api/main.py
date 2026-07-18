@@ -130,6 +130,15 @@ class TurnOut(BaseModel):
     content: str
 
 
+class BusinessOut(BaseModel):
+    # Deliberately narrower than the Business contract (contracts/records.py)
+    # and repo.list_businesses()'s dict shape: excludes tenant/schema_version
+    # and, most importantly, meta — never serialize meta to this list endpoint.
+    id: str
+    name: str
+    session_count: int
+
+
 class AutomationOut(BaseModel):
     id: str
     recommendation_id: str
@@ -843,6 +852,29 @@ def link_automation_product(
         automation.spec["product_notes"] = body.product_notes
         repo.put("automations", automation.model_dump(mode="json"))
         return AutomationOut(**automation.model_dump())
+    finally:
+        repo.close()
+
+
+@app.get("/businesses", response_model=list[BusinessOut])
+def get_businesses(
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> list[BusinessOut]:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        # Unknown tenant -> [] (same posture as GET /audit-log), not 404 — a
+        # list has no id to protect (spec D7 in
+        # docs/FEATURE-SPEC-dashboard-and-users.md).
+        return [BusinessOut(**row) for row in repo.list_businesses(tenant)]
     finally:
         repo.close()
 
