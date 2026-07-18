@@ -106,6 +106,13 @@ class RecommendationOut(BaseModel):
     opportunity_id: str
     summary: str
     approval_state: ApprovalState
+    # Not part of the frozen Recommendation contract (contracts/records.py) —
+    # additive to this API response shape only. Resolved server-side, via
+    # _resolve_session_id(), in both get_recommendation and
+    # approve_recommendation, using the same tenant-scoped Opportunity ->
+    # Task lookup build_automation also uses; stays None whenever no
+    # Opportunity/Task can be resolved, never errors.
+    session_id: str | None = None
 
 
 class TurnOut(BaseModel):
@@ -461,6 +468,29 @@ def get_interview_transcript(
         repo.close()
 
 
+def _resolve_session_id(repo: KBRepository, recommendation: Recommendation, tenant: str) -> str | None:
+    """Resolve the interview session_id for a "View interview transcript" link.
+
+    Shared by get_recommendation and approve_recommendation so both responses
+    carry the same value. Uses the same tenant-scoped Opportunity -> Task
+    lookup build_automation already uses: an unresolvable (missing or
+    wrong-tenant) Opportunity, or an Opportunity with no resolvable Tasks, is
+    tolerated, not fatal — this returns None, never a different error or a
+    tenant-info leak. Both callers already 404 on a missing/wrong-tenant
+    recommendation before reaching here, so the tenant scoping below is not
+    the caller's only check.
+    """
+    opportunity_row = repo.get("opportunities", recommendation.opportunity_id, tenant)
+    opportunity = Opportunity(**opportunity_row) if opportunity_row is not None else None
+    tasks: list[Task] = []
+    if opportunity is not None:
+        for task_id in opportunity.task_ids:
+            task_row = repo.get("tasks", task_id, tenant)
+            if task_row is not None:
+                tasks.append(Task(**task_row))
+    return tasks[0].session_id if tasks else None
+
+
 @app.get("/recommendations/{recommendation_id}", response_model=RecommendationOut)
 def get_recommendation(
     recommendation_id: str,
@@ -482,7 +512,8 @@ def get_recommendation(
             # Same 404 for unknown id and wrong tenant — don't leak which.
             raise HTTPException(status_code=404, detail="not found")
         recommendation = Recommendation(**row)
-        return RecommendationOut(**recommendation.model_dump())
+        session_id = _resolve_session_id(repo, recommendation, tenant)
+        return RecommendationOut(**recommendation.model_dump(), session_id=session_id)
     finally:
         repo.close()
 
@@ -522,7 +553,8 @@ def approve_recommendation(
                 old_value=old_state.value,
                 new_value=ApprovalState.approved.value,
             )
-        return RecommendationOut(**recommendation.model_dump())
+        session_id = _resolve_session_id(repo, recommendation, tenant)
+        return RecommendationOut(**recommendation.model_dump(), session_id=session_id)
     finally:
         repo.close()
 

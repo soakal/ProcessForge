@@ -6,6 +6,7 @@
 <div id="recommendation-area" style="display:none;">
   <p id="recommendation-summary"></p>
   <p id="recommendation-approval-state"></p>
+  <p id="recommendation-transcript-link" style="display:none;"></p>
   <button type="button" id="approve-button" style="display:none;">Approve</button>
   <button type="button" id="build-button" style="display:none;">Build</button>
   <div id="build-error" class="error-message"></div>
@@ -59,6 +60,7 @@
     document.getElementById("recommendation-summary").textContent = recommendation.summary;
     document.getElementById("recommendation-approval-state").textContent =
       "Status: " + recommendation.approval_state;
+    renderTranscriptLink(recommendation);
 
     const approveButton = document.getElementById("approve-button");
     const buildButton = document.getElementById("build-button");
@@ -73,6 +75,33 @@
       approveButton.style.display = "none";
       buildButton.style.display = "none";
     }
+  }
+
+  function renderTranscriptLink(recommendation) {
+    const linkArea = document.getElementById("recommendation-transcript-link");
+
+    // Clear any previously rendered content — renderRecommendation re-runs
+    // (e.g. after approve), matching renderProduct's clear-before-render
+    // discipline below.
+    while (linkArea.firstChild) {
+      linkArea.removeChild(linkArea.firstChild);
+    }
+
+    if (!recommendation.session_id) {
+      // Genuinely hidden, not just empty — no content is appended below.
+      linkArea.style.display = "none";
+      return;
+    }
+
+    linkArea.style.display = "block";
+    const link = document.createElement("a");
+    link.href =
+      "/ui/interview/" +
+      encodeURIComponent(recommendation.session_id) +
+      "/transcript?tenant=" +
+      encodeURIComponent(tenant);
+    link.textContent = "View interview transcript";
+    linkArea.appendChild(link);
   }
 
   function renderAutomation(automation) {

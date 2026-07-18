@@ -363,8 +363,9 @@ you like.
 *Using the website? Go to
 `http://127.0.0.1:8010/ui/interview/THE_SESSION_ID/transcript?tenant=acme` to see
 the same conversation laid out as a page instead of raw text — skip the command
-above. (There isn't yet a link to this page from the recommendation page — you'll
-need to type or paste the address yourself for now.)*
+above. Or, from the recommendation's own page, click the **"View interview
+transcript"** link near the top — it takes you straight there and only appears
+when ProcessForge can tell which conversation the recommendation came from.*
 
 ---
 
@@ -385,6 +386,10 @@ ProcessForge which client/company this is for.
    ```powershell
    curl.exe -s "http://127.0.0.1:8010/recommendations/THE_ID?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE"
    ```
+
+   If ProcessForge can tell which conversation this recommendation came from, the
+   reply also includes a `session_id` — that's what powers the "View interview
+   transcript" link on the recommendation's page mentioned earlier.
 
 2. **Approve it** — this is the "yes, go ahead" step. Nothing is built yet — this
    just marks the recommendation as approved:

@@ -361,6 +361,71 @@ def test_get_recommendation_wrong_tenant_returns_404(monkeypatch, tmp_path):
     assert response.status_code == 404
 
 
+def test_get_recommendation_includes_session_id_when_resolvable(monkeypatch, tmp_path):
+    """session_id is resolved server-side via the same tenant-scoped
+    Opportunity -> Task lookup build_automation already uses, so
+    recommendations.html can render a "View interview transcript" link."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    session_response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "acme",
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert session_response.status_code == 200
+    session_body = session_response.json()
+    recommendation = session_body["recommendations"][0]
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == session_body["session_id"]
+
+
+def test_get_recommendation_session_id_absent_when_no_tasks(monkeypatch, tmp_path):
+    """A thin/missing Opportunity or Task set must never error — session_id
+    just stays None, matching build_automation's own tolerance for the exact
+    same case."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+
+    # Remove every task backing this recommendation's opportunity so no
+    # session_id can be resolved, same technique already used by
+    # test_refine_recommendation_turns_with_no_resolvable_session_returns_409.
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM tasks WHERE tenant = ?", ("acme",))
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] is None
+
+
 def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]
@@ -385,6 +450,43 @@ def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
 
     assert get_response.status_code == 200
     assert get_response.json()["approval_state"] == "approved"
+
+
+def test_approve_recommendation_includes_session_id_when_resolvable(monkeypatch, tmp_path):
+    """session_id must be resolved on the approve response too, via the same
+    shared _resolve_session_id() helper get_recommendation uses — otherwise
+    the recommendations.html approve-button handler, which renders straight
+    from this response without a fresh GET, would silently lose the "View
+    interview transcript" link the moment a user clicks Approve."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    session_response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "acme",
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert session_response.status_code == 200
+    session_body = session_response.json()
+    recommendation = session_body["recommendations"][0]
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/approve",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == session_body["session_id"]
 
 
 def test_approve_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):

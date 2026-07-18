@@ -191,11 +191,11 @@ pattern as `ui_recommendation`. Client-side JS fetches the transcript via
 alongside the API's own ordering), and renders each turn with
 `textContent`/`createElement` only — no `innerHTML`, matching the rest of
 `/ui`. 404/401/network-error all fall back to the same "back to dashboard"
-pattern as `ui_recommendation`. **Deliberately no link to this page from
-`recommendations.html` yet** — `Recommendation` doesn't carry a `session_id`
-or transcript reference in its frozen contract, so wiring that link is
-separate plumbing left for a later cycle; this change only adds the standalone
-page and its route.
+pattern as `ui_recommendation`. At the time this page was added, there was
+deliberately no link to it from `recommendations.html` yet — `Recommendation`
+doesn't carry a `session_id` or transcript reference in its frozen contract,
+so wiring that link needed separate plumbing, left for a later cycle (now
+closed; see below).
 
 **The frontend is now built too — ProcessForge is a complete, usable product.**
 6 pages under `/ui`, served by FastAPI directly (Jinja2 templates + vanilla
@@ -336,6 +336,26 @@ via `textContent` if present. Previously-rendered link/notes content is
 explicitly cleared (`removeChild` loop + `textContent = ""`) at the top of
 every `renderProduct()` call so a stale link from a prior automation can't
 linger across a feedback-revision re-render.
+
+**The recommendation page now links to its interview transcript.**
+`RecommendationOut` (an API response model in `api/main.py`, NOT
+`contracts/records.py` — the frozen `Recommendation` contract itself is
+untouched) gained an additive `session_id: str | None = None` field.
+`GET /recommendations/{id}` resolves it using the exact same tenant-scoped
+Opportunity -> Task lookup `build_automation` already established (fetch the
+Opportunity, then each of its `task_ids`' Tasks, tenant-scoped; take the
+first resolved Task's `session_id`) — a missing/unresolvable Opportunity or
+an Opportunity with no resolvable Tasks is tolerated exactly like
+`build_automation` already tolerates it, `session_id` just stays `None`,
+never a different error or a tenant-info leak. The existing tenant-isolation
+discipline is unchanged: a wrong-tenant request still 404s before this
+resolution code ever runs. `web/templates/recommendations.html` renders a
+"View interview transcript" link (`document.createElement("a")` +
+`textContent` only, never `innerHTML`) pointing at
+`/ui/interview/{session_id}/transcript?tenant=...` — genuinely hidden
+(`display:none`, no appended content) whenever `session_id` is absent,
+cleared and re-rendered every time `renderRecommendation()` runs (e.g. after
+approve), matching `renderProduct()`'s own clear-before-render discipline.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

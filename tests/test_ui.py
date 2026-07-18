@@ -102,6 +102,25 @@ def test_ui_recommendation_renders_product_link_code():
     assert "innerHTML" not in response.text
 
 
+def test_ui_recommendation_renders_transcript_link_code():
+    client = _client()
+    response = client.get("/ui/recommendations/some-fake-id")
+    assert response.status_code == 200
+    # TestClient's GET never executes the inline fetch-on-load script against
+    # a real backend recommendation, so this only confirms the static page
+    # structure is present: the hidden-by-default container, the
+    # renderTranscriptLink() function that builds the visible "View interview
+    # transcript" link only when recommendation.session_id is present, and
+    # the createElement("a") + textContent-only construction (no innerHTML).
+    assert "renderTranscriptLink" in response.text
+    assert "recommendation-transcript-link" in response.text
+    assert "View interview transcript" in response.text
+    assert "/ui/interview/" in response.text
+    assert "/transcript?tenant=" in response.text
+    assert 'createElement("a")' in response.text
+    assert "innerHTML" not in response.text
+
+
 def test_ui_audit_log_renders_form():
     client = _client()
     response = client.get("/ui/audit-log")
