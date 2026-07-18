@@ -104,6 +104,21 @@ button:hover {
   margin: 0 0 1rem;
 }
 
+/* Prominent status/ROI display on recommendations.html (item 7 slice 3) —
+   distinct from the plain-language .page-intro/.next-step copy above,
+   this makes the two things the page's acceptance criteria call out
+   ("ROI and status prominently") visually stand out. */
+.status-line {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.roi-line {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #146c2e;
+}
+
 /* Error message */
 .error-message {
   color: #b3261e;

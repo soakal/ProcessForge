@@ -2,10 +2,13 @@
 {% block title %}Recommendation — ProcessForge{% endblock %}
 {% block content %}
 <h1>Recommendation</h1>
+<p class="page-intro">This page shows one recommendation's estimated time savings (ROI) and current status, and lets you move it forward — approve it, build it, or give feedback on the result.</p>
+<p class="next-step" id="recommendation-next-step"></p>
 <div id="recommendation-missing" class="error-message"></div>
 <div id="recommendation-area" style="display:none;">
   <p id="recommendation-summary"></p>
-  <p id="recommendation-approval-state"></p>
+  <p id="recommendation-approval-state" class="status-line"></p>
+  <p id="recommendation-roi" class="roi-line" style="display:none;"></p>
   <p id="recommendation-transcript-link" style="display:none;"></p>
   <button type="button" id="approve-button" style="display:none;">Approve</button>
   <button type="button" id="build-button" style="display:none;">Build</button>
@@ -46,6 +49,7 @@
   function showFallback(message) {
     recommendationArea.style.display = "none";
     automationArea.style.display = "none";
+    document.getElementById("recommendation-next-step").textContent = "";
     missingBox.textContent = message;
     missingBox.appendChild(document.createElement("br"));
     const link = document.createElement("a");
@@ -55,11 +59,14 @@
   }
 
   let currentAutomation = null;
+  let currentRecommendation = null;
 
   function renderRecommendation(recommendation) {
+    currentRecommendation = recommendation;
     document.getElementById("recommendation-summary").textContent = recommendation.summary;
     document.getElementById("recommendation-approval-state").textContent =
       "Status: " + recommendation.approval_state;
+    renderRoi(recommendation);
     renderTranscriptLink(recommendation);
 
     const approveButton = document.getElementById("approve-button");
@@ -74,6 +81,41 @@
     } else {
       approveButton.style.display = "none";
       buildButton.style.display = "none";
+    }
+
+    renderNextStep();
+  }
+
+  function renderRoi(recommendation) {
+    const roiLine = document.getElementById("recommendation-roi");
+    // None-safe on the frontend too: roi_low_hrs/roi_high_hrs are only ever
+    // present together (resolved server-side in api/main.py's _resolve_roi),
+    // but check both so a partial/unexpected shape never renders "undefined".
+    if (recommendation.roi_low_hrs == null || recommendation.roi_high_hrs == null) {
+      // Genuinely hidden, not just empty — no content is left below.
+      roiLine.style.display = "none";
+      roiLine.textContent = "";
+      return;
+    }
+    roiLine.style.display = "block";
+    roiLine.textContent =
+      "Estimated savings: " + recommendation.roi_low_hrs + "–" + recommendation.roi_high_hrs + " hours/year";
+  }
+
+  function renderNextStep() {
+    const nextStep = document.getElementById("recommendation-next-step");
+    if (!currentRecommendation) {
+      nextStep.textContent = "";
+      return;
+    }
+    if (currentAutomation) {
+      nextStep.textContent = "Next step: review the automation below, then submit feedback if changes are needed.";
+    } else if (currentRecommendation.approval_state === "draft") {
+      nextStep.textContent = "Next step: review the ROI and summary above, then select \"Approve\".";
+    } else if (currentRecommendation.approval_state === "approved") {
+      nextStep.textContent = "Next step: select \"Build\" to generate the automation.";
+    } else {
+      nextStep.textContent = "";
     }
   }
 
@@ -112,6 +154,7 @@
     document.getElementById("automation-rollback").textContent = "Rollback: " + automation.rollback;
     document.getElementById("automation-approval-state").textContent = "Automation status: " + automation.approval_state;
     renderProduct(automation);
+    renderNextStep();
   }
 
   function renderProduct(automation) {

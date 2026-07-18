@@ -204,14 +204,21 @@ read the rest of this manual to use ProcessForge day to day** — the website co
 everything. Keep reading if you want the command-line details, or skip ahead to
 "What's coming next".
 
-**The login page, the dashboard, the interview conversation page, and the
-transcript page now each start with two short lines of plain text**: one
-sentence explaining what that page is for, and one sentence telling you
+**The login page, the dashboard, the interview conversation page, the
+transcript page, and now the recommendation page too each start with a short
+line of plain text explaining what that page is for**, and a line telling you
 exactly what to do next (e.g. "enter your username and password, then select
-Log In"). This is an ongoing effort to make every page on the website explain
-itself without needing this manual open — the remaining pages (a
-recommendation's page, the audit log, and the delete-a-business page) will
-get the same treatment in later updates.
+Log In"). On the recommendation page, that "what to do next" line changes
+depending on where the recommendation is in its journey — "review the ROI
+and summary, then select Approve" while it's a draft, "select Build to
+generate the automation" once it's approved, and "review the automation and
+submit feedback if changes are needed" once it's built. The recommendation
+page also now shows the recommendation's **estimated time savings (ROI)**
+and its status in bold, right at the top, so you don't have to hunt for
+them. This is an ongoing effort to make every page on the website explain
+itself without needing this manual open — the remaining pages (the audit
+log and the delete-a-business page) will get the same treatment in later
+updates.
 
 ---
 
@@ -398,7 +405,11 @@ ProcessForge which client/company this is for.
 
    If ProcessForge can tell which conversation this recommendation came from, the
    reply also includes a `session_id` — that's what powers the "View interview
-   transcript" link on the recommendation's page mentioned earlier.
+   transcript" link on the recommendation's page mentioned earlier. If ProcessForge
+   can also work out the estimated time savings, the reply includes `roi_low_hrs`
+   and `roi_high_hrs` — the low and high ends of the estimated hours saved per
+   year, the same range shown prominently near the top of the recommendation's
+   page on the website.
 
 2. **Approve it** — this is the "yes, go ahead" step. Nothing is built yet — this
    just marks the recommendation as approved:

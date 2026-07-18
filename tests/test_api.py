@@ -426,6 +426,77 @@ def test_get_recommendation_session_id_absent_when_no_tasks(monkeypatch, tmp_pat
     assert response.json()["session_id"] is None
 
 
+def test_get_recommendation_includes_roi_when_resolvable(monkeypatch, tmp_path):
+    """roi_low_hrs/roi_high_hrs are resolved server-side from the
+    Recommendation's Opportunity, via the same tenant-scoped Opportunity
+    lookup _resolve_session_id uses, so recommendations.html can render ROI
+    prominently."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    session_response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "acme",
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert session_response.status_code == 200
+    session_body = session_response.json()
+    recommendation = session_body["recommendations"][0]
+    opportunity = session_body["opportunities"][0]
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["roi_low_hrs"] == opportunity["roi_low_hrs"]
+    assert body["roi_high_hrs"] == opportunity["roi_high_hrs"]
+
+
+def test_get_recommendation_roi_absent_when_opportunity_missing(monkeypatch, tmp_path):
+    """A missing Opportunity must never error — roi_low_hrs/roi_high_hrs just
+    stay None, matching _resolve_session_id's own tolerance for the same
+    unresolvable case."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    recommendation = _create_recommendation(client, token, tenant="acme")
+
+    # Remove the opportunity backing this recommendation so ROI can't be
+    # resolved, same DELETE technique already used by
+    # test_get_recommendation_session_id_absent_when_no_tasks.
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM opportunities WHERE tenant = ?", ("acme",))
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.get(
+        f"/recommendations/{recommendation['id']}",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["roi_low_hrs"] is None
+    assert body["roi_high_hrs"] is None
+
+
 def test_approve_recommendation_flips_state_to_approved(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     db_path = os.environ["PROCESSFORGE_DB_PATH"]
@@ -487,6 +558,46 @@ def test_approve_recommendation_includes_session_id_when_resolvable(monkeypatch,
 
     assert response.status_code == 200
     assert response.json()["session_id"] == session_body["session_id"]
+
+
+def test_approve_recommendation_includes_roi_when_resolvable(monkeypatch, tmp_path):
+    """roi_low_hrs/roi_high_hrs must be resolved on the approve response too,
+    via the same shared _resolve_roi() helper get_recommendation uses —
+    otherwise recommendations.html, which renders straight from this
+    response without a fresh GET, would silently lose the ROI display the
+    moment a user clicks Approve."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+    session_response = client.post(
+        "/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "business_name": "Test Co",
+            "tenant": "acme",
+            "answers": [
+                "We manually reconcile invoices every week.",
+                "It takes about 2 hours each time.",
+                "We'd like it automated so no one has to touch a spreadsheet.",
+            ],
+        },
+    )
+    assert session_response.status_code == 200
+    session_body = session_response.json()
+    recommendation = session_body["recommendations"][0]
+    opportunity = session_body["opportunities"][0]
+
+    response = client.post(
+        f"/recommendations/{recommendation['id']}/approve",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["roi_low_hrs"] == opportunity["roi_low_hrs"]
+    assert body["roi_high_hrs"] == opportunity["roi_high_hrs"]
 
 
 def test_approve_recommendation_unknown_id_returns_404(monkeypatch, tmp_path):

@@ -113,6 +113,13 @@ class RecommendationOut(BaseModel):
     # Task lookup build_automation also uses; stays None whenever no
     # Opportunity/Task can be resolved, never errors.
     session_id: str | None = None
+    # Also not part of the frozen Recommendation contract — additive to this
+    # API response shape only. Resolved server-side via _resolve_roi(), in
+    # both get_recommendation and approve_recommendation, using the same
+    # tenant-scoped Opportunity lookup as session_id above; stays None
+    # whenever no Opportunity can be resolved, never errors.
+    roi_low_hrs: float | None = None
+    roi_high_hrs: float | None = None
 
 
 class TurnOut(BaseModel):
@@ -491,6 +498,24 @@ def _resolve_session_id(repo: KBRepository, recommendation: Recommendation, tena
     return tasks[0].session_id if tasks else None
 
 
+def _resolve_roi(repo: KBRepository, recommendation: Recommendation, tenant: str) -> tuple[float | None, float | None]:
+    """Resolve (roi_low_hrs, roi_high_hrs) from the Recommendation's Opportunity for display.
+
+    Shared by get_recommendation and approve_recommendation so both responses
+    carry the same value. Same tenant-scoped Opportunity lookup as
+    _resolve_session_id: an unresolvable (missing or wrong-tenant) Opportunity
+    is tolerated, not fatal — this returns (None, None), never a different
+    error or a tenant-info leak. Both callers already 404 on a
+    missing/wrong-tenant recommendation before reaching here, so the tenant
+    scoping below is not the caller's only check.
+    """
+    opportunity_row = repo.get("opportunities", recommendation.opportunity_id, tenant)
+    if opportunity_row is None:
+        return None, None
+    opportunity = Opportunity(**opportunity_row)
+    return opportunity.roi_low_hrs, opportunity.roi_high_hrs
+
+
 @app.get("/recommendations/{recommendation_id}", response_model=RecommendationOut)
 def get_recommendation(
     recommendation_id: str,
@@ -513,7 +538,13 @@ def get_recommendation(
             raise HTTPException(status_code=404, detail="not found")
         recommendation = Recommendation(**row)
         session_id = _resolve_session_id(repo, recommendation, tenant)
-        return RecommendationOut(**recommendation.model_dump(), session_id=session_id)
+        roi_low_hrs, roi_high_hrs = _resolve_roi(repo, recommendation, tenant)
+        return RecommendationOut(
+            **recommendation.model_dump(),
+            session_id=session_id,
+            roi_low_hrs=roi_low_hrs,
+            roi_high_hrs=roi_high_hrs,
+        )
     finally:
         repo.close()
 
@@ -554,7 +585,13 @@ def approve_recommendation(
                 new_value=ApprovalState.approved.value,
             )
         session_id = _resolve_session_id(repo, recommendation, tenant)
-        return RecommendationOut(**recommendation.model_dump(), session_id=session_id)
+        roi_low_hrs, roi_high_hrs = _resolve_roi(repo, recommendation, tenant)
+        return RecommendationOut(
+            **recommendation.model_dump(),
+            session_id=session_id,
+            roi_low_hrs=roi_low_hrs,
+            roi_high_hrs=roi_high_hrs,
+        )
     finally:
         repo.close()
 

@@ -357,7 +357,7 @@ resolution code ever runs. `web/templates/recommendations.html` renders a
 cleared and re-rendered every time `renderRecommendation()` runs (e.g. after
 approve), matching `renderProduct()`'s own clear-before-render discipline.
 
-**Item 7 (clearer UI) is 2 of 4 slices done.** `/ui/login`, `/ui` (dashboard),
+**Item 7 (clearer UI) is 3 of 4 slices done.** `/ui/login`, `/ui` (dashboard),
 `/ui/interview`, and `/ui/interview/{session_id}/transcript` each now open
 with two short, plain-language lines: a `.page-intro` purpose sentence (what
 this page is for) and a `.next-step` sentence (what to do next), reusing the
@@ -376,10 +376,50 @@ the `<h1>`, above the existing `#interview-missing`/`#transcript-missing`
 error divs, so it still renders in any fallback/error state. No element
 IDs/classes any existing JS depends on were touched. `tests/test_ui.py`
 asserts the new copy appears in `response.text` for both pages, mirroring
-the assertions already added for login/dashboard. **Still to do for item 7:**
-`recommendations.html`, `audit-log.html`, and `businesses_delete.html` each
-need their own `.page-intro`/`.next-step` copy — planned for future cycles,
-not yet started.
+the assertions already added for login/dashboard.
+
+**`recommendations.html` is now the third slice, and also gained the ROI
+display item 7's acceptance criteria specifically calls for.** `RecommendationOut`
+(the API response model, still not `contracts/records.py` — the frozen
+`Recommendation` contract is untouched) gained two more additive fields,
+`roi_low_hrs`/`roi_high_hrs: float | None = None`, resolved server-side by a
+new `_resolve_roi()` helper that mirrors `_resolve_session_id()`'s shape
+exactly: same tenant-scoped `repo.get("opportunities", recommendation.opportunity_id,
+tenant)` fetch, same "never errors, stays `None` on any unresolvable
+Opportunity" tolerance, called from **both** `get_recommendation` and
+`approve_recommendation` (repeating `_resolve_session_id`'s own cycle-9 fix,
+not its earlier get-only mistake — ROI must survive an Approve click, not
+just the initial page load). Unlike `session_id`, ROI lives directly on the
+Opportunity, so it doesn't need the Task hop `_resolve_session_id` makes; it
+resolves even when the Opportunity's Tasks are gone, and is only `None` when
+the Opportunity itself can't be found. `recommendations.html` gained a
+`.page-intro`/`.next-step` pair (same two `web/static/app.css` classes as the
+other three pages) plus two new prominence-only classes, `.status-line` and
+`.roi-line` (bold, slightly larger text — the acceptance criteria's own
+wording is "show ROI and status prominently"), applied to the existing status
+paragraph and a new ROI paragraph. Unlike the other three pages' static
+next-step text, this page's next-step line is JS-driven and changes with the
+recommendation's real state — draft ("review the ROI and summary above, then
+select Approve"), approved-not-yet-built ("select Build to generate the
+automation"), and built ("review the automation below, then submit feedback
+if changes are needed") — tracked via a new `currentRecommendation` module
+variable alongside the existing `currentAutomation` one, re-evaluated by a
+shared `renderNextStep()` called from both `renderRecommendation()` and
+`renderAutomation()` so it stays correct after every approve/build/feedback
+round-trip. `renderRoi()` is None-safe on the frontend too (checks both
+`roi_low_hrs`/`roi_high_hrs` are non-null before rendering, genuinely hides
+the element via `display:none` + cleared `textContent` otherwise) and, like
+every other dynamic element on this page, is built with `textContent` only —
+no `innerHTML`. `tests/test_api.py` adds ROI-resolvable and
+ROI-unresolvable-Opportunity coverage for both `get_recommendation` and
+`approve_recommendation` (4 new tests, mirroring the existing `session_id`
+test shapes); `tests/test_ui.py` adds string assertions for the new
+`.page-intro`/`.next-step`/`.status-line`/`.roi-line` markup and all three
+next-step message variants, plus a dedicated `renderRoi()`-presence test
+mirroring the existing `renderProduct`/`renderTranscriptLink` code-presence
+tests. **Still to do for item 7:** `audit-log.html` and
+`businesses_delete.html` each need their own `.page-intro`/`.next-step`
+copy — planned for a future cycle, not yet started.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

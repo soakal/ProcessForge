@@ -83,6 +83,17 @@ def test_ui_recommendation_renders_page():
     assert "Approve" in response.text
     assert "Build" in response.text
     assert "some-fake-id" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for, and shows ROI + status prominently with a per-state next-step
+    # message (draft->approve, approved->build, built->feedback).
+    assert 'class="page-intro"' in response.text
+    assert "estimated time savings (ROI) and current status" in response.text
+    assert 'class="next-step"' in response.text
+    assert 'class="status-line"' in response.text
+    assert 'class="roi-line"' in response.text
+    assert "review the ROI and summary above" in response.text
+    assert "to generate the automation" in response.text
+    assert "submit feedback if changes are needed" in response.text
 
 
 def test_ui_interview_transcript_renders_page():
@@ -142,6 +153,24 @@ def test_ui_recommendation_renders_transcript_link_code():
     assert "/ui/interview/" in response.text
     assert "/transcript?tenant=" in response.text
     assert 'createElement("a")' in response.text
+    assert "innerHTML" not in response.text
+
+
+def test_ui_recommendation_renders_roi_code():
+    client = _client()
+    response = client.get("/ui/recommendations/some-fake-id")
+    assert response.status_code == 200
+    # TestClient's GET never executes the inline fetch-on-load script against
+    # a real backend recommendation, so this only confirms the static page
+    # structure is present: the hidden-by-default container, the renderRoi()
+    # function that renders roi_low_hrs/roi_high_hrs prominently only when
+    # both are present (None-safe on the frontend, matching the backend's own
+    # None-safe _resolve_roi()), and that it's built without innerHTML.
+    assert "renderRoi" in response.text
+    assert "recommendation-roi" in response.text
+    assert "roi_low_hrs" in response.text
+    assert "roi_high_hrs" in response.text
+    assert "Estimated savings" in response.text
     assert "innerHTML" not in response.text
 
 
