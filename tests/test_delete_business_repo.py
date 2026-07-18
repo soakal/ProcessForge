@@ -95,6 +95,7 @@ def test_delete_business_happy_path_returns_counts_and_removes_everything(repo):
     assert counts == {
         "businesses": 1,
         "sessions": 1,
+        "session_turns": 0,
         "tasks": 1,
         "workflow_graphs": 1,
         "opportunities": 1,
@@ -124,6 +125,7 @@ def test_delete_business_with_no_children_deletes_cleanly(repo):
     assert counts == {
         "businesses": 1,
         "sessions": 0,
+        "session_turns": 0,
         "tasks": 0,
         "workflow_graphs": 0,
         "opportunities": 0,
@@ -163,6 +165,40 @@ def test_delete_business_wrong_tenant_returns_none(repo):
 
     # nothing was touched — the business is still there for the real tenant.
     assert repo.get("businesses", ids["business_id"], "acme") is not None
+
+
+def test_delete_business_with_session_turns_deletes_turns_too(repo):
+    tenant = "acme"
+    business_id = _new_id()
+    repo.put("businesses", {
+        "id": business_id, "schema_version": 1, "tenant": tenant,
+        "name": "Chatty Co", "meta": {},
+    })
+
+    session_id = _new_id()
+    repo.put("sessions", {
+        "id": session_id, "schema_version": 1, "business_id": business_id,
+        "status": "active", "transcript_ref": None,
+    })
+
+    repo.add_turn(session_id, "user", "First message")
+    repo.add_turn(session_id, "assistant", "Second message")
+
+    counts = repo.delete_business(business_id, tenant)
+
+    assert counts == {
+        "businesses": 1,
+        "sessions": 1,
+        "session_turns": 2,
+        "tasks": 0,
+        "workflow_graphs": 0,
+        "opportunities": 0,
+        "recommendations": 0,
+        "automations": 0,
+    }
+
+    assert repo.get("businesses", business_id, tenant) is None
+    assert repo.list_turns(session_id) == []
 
 
 def test_delete_business_twice_second_call_returns_none(repo):

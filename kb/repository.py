@@ -215,6 +215,13 @@ class KBRepository:
             "SELECT id FROM sessions WHERE business_id = ? AND tenant = ?", (business_id, tenant)
         )
 
+        session_turn_ids: list[str] = []
+        if session_ids:
+            session_turn_ids = _ids(
+                f"SELECT id FROM session_turns WHERE session_id IN ({_placeholders(session_ids)})",
+                tuple(session_ids),
+            )
+
         task_ids: list[str] = []
         workflow_graph_ids: list[str] = []
         if session_ids:
@@ -285,6 +292,10 @@ class KBRepository:
                 )
             if session_ids:
                 self._conn.execute(
+                    f"DELETE FROM session_turns WHERE session_id IN ({_placeholders(session_ids)})",
+                    session_ids,
+                )
+                self._conn.execute(
                     f"DELETE FROM sessions WHERE id IN ({_placeholders(session_ids)})", session_ids
                 )
             self._conn.execute(
@@ -308,6 +319,7 @@ class KBRepository:
         return {
             "businesses": 1,
             "sessions": len(session_ids),
+            "session_turns": len(session_turn_ids),
             "tasks": len(task_ids),
             "workflow_graphs": len(workflow_graph_ids),
             "opportunities": len(opportunity_ids),

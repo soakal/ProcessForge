@@ -1451,6 +1451,7 @@ def test_delete_business_happy_path_returns_counts(monkeypatch, tmp_path):
     assert response.json() == {
         "businesses": 1,
         "sessions": 1,
+        "session_turns": 0,
         "tasks": 1,
         "workflow_graphs": 1,
         "opportunities": 1,
@@ -1476,6 +1477,7 @@ def test_delete_business_with_no_children_returns_zero_counts(monkeypatch, tmp_p
     assert response.json() == {
         "businesses": 1,
         "sessions": 0,
+        "session_turns": 0,
         "tasks": 0,
         "workflow_graphs": 0,
         "opportunities": 0,
