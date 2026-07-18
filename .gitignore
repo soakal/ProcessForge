@@ -10,3 +10,5 @@ dist/
 *.spec
 /ProcessForgeTray.exe
 /ProcessForgeSetup.exe
+uvicorn_preview.*.log
+logs_processforge_dev.log
