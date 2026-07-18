@@ -137,6 +137,42 @@ class KBRepository:
         ).fetchall()
         return [self._deserialize("automations", r) for r in rows]
 
+    def list_recommendations_by_session(self, session_id: str, tenant: str) -> list[dict]:
+        """Tenant-scoped: every Recommendation reachable from a Session's Tasks via
+        Opportunity.task_ids — a JSON array column, not a real FK, so json_each()
+        is required (same pattern as delete_business). Used by
+        GET /businesses/{id}/sessions (item 6) to attach recommendation_ids per
+        session."""
+        task_ids = [
+            row["id"]
+            for row in self._conn.execute(
+                "SELECT id FROM tasks WHERE session_id = ? AND tenant = ?", (session_id, tenant)
+            ).fetchall()
+        ]
+        if not task_ids:
+            return []
+
+        task_placeholders = ", ".join("?" for _ in task_ids)
+        opportunity_ids = [
+            row["id"]
+            for row in self._conn.execute(
+                f"SELECT DISTINCT o.id FROM opportunities o, json_each(o.task_ids) je "
+                f"WHERE je.value IN ({task_placeholders}) AND o.tenant = ?",
+                (*task_ids, tenant),
+            ).fetchall()
+        ]
+        if not opportunity_ids:
+            return []
+
+        opp_placeholders = ", ".join("?" for _ in opportunity_ids)
+        cols = COLUMNS["recommendations"]
+        rows = self._conn.execute(
+            f"SELECT {', '.join(cols)} FROM recommendations "
+            f"WHERE opportunity_id IN ({opp_placeholders}) AND tenant = ?",
+            (*opportunity_ids, tenant),
+        ).fetchall()
+        return [self._deserialize("recommendations", r) for r in rows]
+
     # -- audit_log: append-only, no parent-chain tenant resolution needed (caller
     # already knows the tenant), so these bypass _resolve_tenant entirely. --
     def log_approval_change(
@@ -210,6 +246,15 @@ class KBRepository:
             (session_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_first_turn_ts(self, session_id: str) -> str | None:
+        """Not tenant-scoped, mirrors list_turns above — caller resolves the
+        session's tenant first. Used by GET /businesses/{id}/sessions (item 6)
+        to derive started_at; None for a session with no turns yet."""
+        row = self._conn.execute(
+            "SELECT MIN(ts) FROM session_turns WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        return row[0] if row else None
 
     # -- delete_business: atomic cascade delete, bypasses _resolve_tenant like the
     # audit_log methods above (caller already knows the tenant). --
