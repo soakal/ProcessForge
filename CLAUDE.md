@@ -417,9 +417,25 @@ test shapes); `tests/test_ui.py` adds string assertions for the new
 `.page-intro`/`.next-step`/`.status-line`/`.roi-line` markup and all three
 next-step message variants, plus a dedicated `renderRoi()`-presence test
 mirroring the existing `renderProduct`/`renderTranscriptLink` code-presence
-tests. **Still to do for item 7:** `audit-log.html` and
-`businesses_delete.html` each need their own `.page-intro`/`.next-step`
-copy — planned for a future cycle, not yet started.
+tests.
+
+**Item 7 (clearer UI) is now fully done — the last 2 of 4 slices are
+complete.** `audit-log.html` and `businesses_delete.html` each gained their
+own `.page-intro`/`.next-step` pair, reusing the same two `web/static/app.css`
+classes as the other five pages — no new CSS. Both are static template text,
+introducing no new XSS surface. `audit-log.html`'s next-step line describes
+the actual on-page action ("enter a tenant below ... then select Search").
+`businesses_delete.html`'s next-step line is deliberately CAUTION-framed
+rather than a generic nudge — "double-check the business ID before deleting
+— this action cannot be undone" — since this is the one destructive-action
+page on the site; it sits directly above the existing `#delete-warning`
+paragraph (left completely unchanged) rather than replacing or duplicating
+it, and none of the existing element IDs, the confirm-match guard logic, or
+the `textContent`/`createElement` rendering were touched. `tests/test_ui.py`
+extends `test_ui_audit_log_renders_form`/`test_ui_businesses_delete_renders_form`
+with the same `.page-intro`/`.next-step` string assertions used for every
+other page. **Item 7's four-slice buildout is complete: all 7 `/ui` pages now
+carry the plain-language intro/next-step pattern.**
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

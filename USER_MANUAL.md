@@ -204,21 +204,24 @@ read the rest of this manual to use ProcessForge day to day** — the website co
 everything. Keep reading if you want the command-line details, or skip ahead to
 "What's coming next".
 
-**The login page, the dashboard, the interview conversation page, the
-transcript page, and now the recommendation page too each start with a short
-line of plain text explaining what that page is for**, and a line telling you
-exactly what to do next (e.g. "enter your username and password, then select
-Log In"). On the recommendation page, that "what to do next" line changes
-depending on where the recommendation is in its journey — "review the ROI
-and summary, then select Approve" while it's a draft, "select Build to
-generate the automation" once it's approved, and "review the automation and
-submit feedback if changes are needed" once it's built. The recommendation
-page also now shows the recommendation's **estimated time savings (ROI)**
-and its status in bold, right at the top, so you don't have to hunt for
-them. This is an ongoing effort to make every page on the website explain
-itself without needing this manual open — the remaining pages (the audit
-log and the delete-a-business page) will get the same treatment in later
-updates.
+**Every page on the website — the login page, the dashboard, the interview
+conversation page, the transcript page, the recommendation page, the audit
+log page, and the delete-a-business page — starts with a short line of plain
+text explaining what that page is for**, and a line telling you exactly what
+to do next (e.g. "enter your username and password, then select Log In"). On
+the recommendation page, that "what to do next" line changes depending on
+where the recommendation is in its journey — "review the ROI and summary,
+then select Approve" while it's a draft, "select Build to generate the
+automation" once it's approved, and "review the automation and submit
+feedback if changes are needed" once it's built. The recommendation page
+also now shows the recommendation's **estimated time savings (ROI)** and its
+status in bold, right at the top, so you don't have to hunt for them. On the
+delete-a-business page, that "what to do next" line is a caution rather than
+a plain instruction — "double-check the business ID before deleting — this
+action cannot be undone" — since this is the one page on the website that
+permanently destroys data. This effort to make every page on the website
+explain itself without needing this manual open is now complete across all
+seven pages.
 
 ---
 
@@ -567,11 +570,11 @@ past transaction history with that bank.)
 
 ## What's coming next
 
-Adding the same short "what this page is for" / "what to do next" text (see
-"Using the website" above) to the remaining website pages that don't have it
-yet: a recommendation's page, the audit log page, and the delete-a-business
-page. The login page, dashboard, interview conversation page, and transcript
-page already have it.
+Every page on the website now has the short "what this page is for" / "what
+to do next" text described in "Using the website" above — there is nothing
+left outstanding on that front. Anything further here is optional polish,
+not a blocker to using the product day to day (see `CLAUDE.md`'s "Remaining"
+list for details).
 
 ---
 

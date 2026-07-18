@@ -181,6 +181,12 @@ def test_ui_audit_log_renders_form():
     assert "tenant" in response.text
     assert "record_id" in response.text
     assert "Search" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "every recorded approval-state change for a tenant" in response.text
+    assert 'class="next-step"' in response.text
+    assert 'enter a tenant below' in response.text
 
 
 def test_ui_businesses_delete_renders_form():
@@ -189,3 +195,11 @@ def test_ui_businesses_delete_renders_form():
     assert response.status_code == 200
     assert "confirm" in response.text.lower()
     assert "cannot be undone" in response.text.lower()
+    # Plain-language intro/next-step copy: the next-step line on this
+    # destructive-action page is CAUTION-framed, not a generic nudge, and
+    # must not replace the existing warning paragraph above the form.
+    assert 'class="page-intro"' in response.text
+    assert "permanently removes a business" in response.text
+    assert 'class="next-step"' in response.text
+    assert "double-check the business ID before deleting" in response.text
+    assert "this action cannot be undone" in response.text
