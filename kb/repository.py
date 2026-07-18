@@ -107,6 +107,22 @@ class KBRepository:
             raise ValueError(f"{kind} is not scoped to a business")
         return [self._deserialize(kind, r) for r in rows]
 
+    def list_businesses(self, tenant: str) -> list[dict]:
+        """Tenant-scoped: every Business for this tenant plus each one's
+        session_count (subquery on sessions.business_id — sessions inherit their
+        business's tenant via _resolve_tenant, so scoping this query on b.tenant
+        alone is sufficient; no join-then-filter-by-tenant-twice needed). Ordered
+        by name then id for a stable, predictable listing."""
+        cols = COLUMNS["businesses"]
+        select_cols = ", ".join(f"b.{c}" for c in cols)
+        rows = self._conn.execute(
+            f"SELECT {select_cols}, "
+            f"(SELECT COUNT(*) FROM sessions s WHERE s.business_id = b.id) AS session_count "
+            f"FROM businesses b WHERE b.tenant = ? ORDER BY b.name, b.id",
+            (tenant,),
+        ).fetchall()
+        return [self._deserialize("businesses", r) for r in rows]
+
     def list_automations_by_recommendation(self, recommendation_id: str, tenant: str) -> list[dict]:
         """Tenant-scoped: every Automation ever built/refined from one
         Recommendation. Used by POST /recommendations/{id}/refine (api/main.py)
