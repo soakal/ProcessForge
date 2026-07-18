@@ -357,16 +357,29 @@ resolution code ever runs. `web/templates/recommendations.html` renders a
 cleared and re-rendered every time `renderRecommendation()` runs (e.g. after
 approve), matching `renderProduct()`'s own clear-before-render discipline.
 
-**Item 7 (clearer UI) has begun — first slice done.** `/ui/login` and `/ui`
-(dashboard) each now open with two short, plain-language lines: a `.page-intro`
-purpose sentence (what this page is for) and a `.next-step` sentence (what to
-do next), styled via two new reusable classes in `web/static/app.css`. Both
-are static template text — nothing dynamic is rendered through them, so this
-introduces no new XSS surface. This establishes the convention the remaining
-pages will reuse. **Still to do for item 7:** `recommendations.html`,
-`interview.html`, `transcript.html`, `audit-log.html`, and
-`businesses_delete.html` each need their own `.page-intro`/`.next-step` copy —
-planned for future cycles, not yet started.
+**Item 7 (clearer UI) is 2 of 4 slices done.** `/ui/login`, `/ui` (dashboard),
+`/ui/interview`, and `/ui/interview/{session_id}/transcript` each now open
+with two short, plain-language lines: a `.page-intro` purpose sentence (what
+this page is for) and a `.next-step` sentence (what to do next), reusing the
+two classes already added to `web/static/app.css` in slice 1 — no new CSS
+this slice. Both are static template text — nothing dynamic is rendered
+through them, so this introduces no new XSS surface. `interview.html`'s `<h1>`
+was plainened to "Answer a Few Questions About Your Process" and its
+next-step line describes the actual on-page action (read the question, type
+an answer, select "Submit Answer") without duplicating the JS-driven
+question-refresh flow's own messaging. `transcript.html`'s `<h1>` was
+plainened to "Your Interview Transcript"; since that page is read-only (see
+above), its next-step line points back to the dashboard rather than implying
+a forward data-entry action, consistent with its own existing JS fallback's
+"Back to dashboard" link. In both templates the new copy sits directly under
+the `<h1>`, above the existing `#interview-missing`/`#transcript-missing`
+error divs, so it still renders in any fallback/error state. No element
+IDs/classes any existing JS depends on were touched. `tests/test_ui.py`
+asserts the new copy appears in `response.text` for both pages, mirroring
+the assertions already added for login/dashboard. **Still to do for item 7:**
+`recommendations.html`, `audit-log.html`, and `businesses_delete.html` each
+need their own `.page-intro`/`.next-step` copy — planned for future cycles,
+not yet started.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

@@ -63,6 +63,12 @@ def test_ui_interview_renders_page():
     # that renders when pf_interview_state is absent) is present in the
     # rendered HTML.
     assert "No interview in progress" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "interview questions ProcessForge uses to learn about your business process" in response.text
+    assert 'class="next-step"' in response.text
+    assert "read the question below, type your answer" in response.text
 
 
 def test_ui_recommendation_renders_page():
@@ -93,6 +99,12 @@ def test_ui_interview_transcript_renders_page():
     assert "turn_index" in response.text
     assert "sort(" in response.text
     assert "innerHTML" not in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "full conversation from an interview" in response.text
+    assert 'class="next-step"' in response.text
+    assert "return to the dashboard when you're done" in response.text
 
 
 def test_ui_recommendation_renders_product_link_code():
