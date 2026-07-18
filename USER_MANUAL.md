@@ -573,6 +573,32 @@ past transaction history with that bank.)
 
 ---
 
+## Permanently deleting a single session — command-line way
+
+There's no website page for this yet (that's still coming) — for now it's
+command-line only.
+
+Sometimes you don't want to delete a whole client, just one interview/session that
+was a mistake, a duplicate, or test data — every task, estimate, recommendation, and
+automation that came out of that one session, permanently and all at once, while the
+client's business record and its other sessions are left completely untouched.
+**This cannot be undone.**
+
+Just like deleting a business, ProcessForge requires you to type the session's ID a
+second time as a confirmation, so a typo or an accidental click can't delete the
+wrong thing (or delete anything at all, if the two don't match exactly):
+
+```powershell
+curl.exe -s -X POST "http://127.0.0.1:8010/sessions/THE_SESSION_ID/delete?tenant=acme" -H "Authorization: Bearer YOUR_TOKEN_HERE" -H "Content-Type: application/json" -d "{\"confirm_session_id\": \"THE_SESSION_ID\"}"
+```
+
+Both `THE_SESSION_ID` occurrences must be exactly the same session ID — if they
+don't match, ProcessForge refuses and deletes nothing. You'll get back a count of
+exactly what was removed. (Same as deleting a business: the audit log is never
+touched, and the business the session belonged to is never deleted or modified.)
+
+---
+
 ## What's coming next
 
 Every page on the website now has the short "what this page is for" / "what

@@ -15,6 +15,7 @@ A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 /recommendations/{id}/approve`, `POST /recommendations/{id}/build`, `POST
 /recommendations/{id}/refine`, `POST
 /automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`,
+`POST /sessions/{id}/delete`,
 `POST /interviews`, `POST /interviews/{id}/answer`, `GET
 /interviews/{id}/transcript`).
 All 6 pipeline stages are now reachable through
@@ -443,10 +444,17 @@ other page. **Item 7's four-slice buildout is complete: all 7 `/ui` pages now
 carry the plain-language intro/next-step pattern.**
 
 **`docs/FEATURE-SPEC-dashboard-and-users.md` items are landing one per council
-cycle.** Item 1 (delete_business FK fix for interview-created businesses) and
+cycle.** Item 1 (delete_business FK fix for interview-created businesses),
 Item 2 (env-configurable interview answer cap, `PROCESSFORGE_MAX_INTERVIEW_ANSWERS`,
-default raised from the old hard-coded 6 to 12) are both done; see that doc for
-the remaining items.
+default raised from the old hard-coded 6 to 12), Item 8 (repo:
+`KBRepository.delete_session(session_id, tenant)`, a tenant-scoped cascade
+delete of one session and its full child chain that mirrors
+`delete_business`'s structure but leaves the parent business and `audit_log`
+untouched), and Item 9 (API: `POST /sessions/{session_id}/delete`, body
+`DeleteSessionRequest {confirm_session_id}` with the exact-match check
+happening before any repo access, identical 404 for unknown-id/wrong-tenant,
+happy path returns the same shape of counts dict as `delete_business`) are
+done; see that doc for the remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

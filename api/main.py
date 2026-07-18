@@ -212,6 +212,10 @@ class DeleteBusinessRequest(BaseModel):
     confirm_business_id: str
 
 
+class DeleteSessionRequest(BaseModel):
+    confirm_session_id: str
+
+
 class EditBusinessRequest(BaseModel):
     # min_length=1/max_length=500 are checked against the RAW (pre-strip)
     # value by Pydantic's built-in str constraints, so an over-length name is
@@ -1015,6 +1019,36 @@ def delete_business(
     repo, _ctx = _open_repo(db_path)
     try:
         result = repo.delete_business(business_id, tenant)
+        if result is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        return result
+    finally:
+        repo.close()
+
+
+@app.post("/sessions/{session_id}/delete")
+def delete_session(
+    session_id: str,
+    tenant: str,
+    body: DeleteSessionRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    # Confirmation check happens BEFORE any repository is opened: a mismatched
+    # confirm_session_id must never be able to reach the DB, even read-only.
+    if body.confirm_session_id != session_id:
+        raise HTTPException(status_code=400, detail="confirm_session_id does not match session_id")
+    repo, _ctx = _open_repo(db_path)
+    try:
+        result = repo.delete_session(session_id, tenant)
         if result is None:
             # Same 404 for unknown id and wrong tenant — don't leak which.
             raise HTTPException(status_code=404, detail="not found")
