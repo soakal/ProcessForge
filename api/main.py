@@ -139,6 +139,17 @@ class BusinessOut(BaseModel):
     session_count: int
 
 
+class SessionOut(BaseModel):
+    # Response shape for GET /businesses/{id}/sessions (item 6) — not part of
+    # the frozen Session contract (contracts/records.py). started_at and
+    # recommendation_ids are both resolved server-side (get_first_turn_ts /
+    # list_recommendations_by_session), not stored on the Session record.
+    id: str
+    status: SessionStatus
+    started_at: str | None = None
+    recommendation_ids: list[str] = Field(default_factory=list)
+
+
 class AutomationOut(BaseModel):
     id: str
     recommendation_id: str
@@ -875,6 +886,46 @@ def get_businesses(
         # list has no id to protect (spec D7 in
         # docs/FEATURE-SPEC-dashboard-and-users.md).
         return [BusinessOut(**row) for row in repo.list_businesses(tenant)]
+    finally:
+        repo.close()
+
+
+@app.get("/businesses/{business_id}/sessions", response_model=list[SessionOut])
+def get_business_sessions(
+    business_id: str,
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> list[SessionOut]:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        business_row = repo.get("businesses", business_id, tenant)
+        if business_row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which. Must
+            # be resolved BEFORE list_by_business/get_first_turn_ts are ever
+            # called: get_first_turn_ts is not tenant-scoped, so this check is
+            # the only thing preventing a cross-tenant started_at read.
+            raise HTTPException(status_code=404, detail="not found")
+        sessions = repo.list_by_business("sessions", business_id, tenant)
+        return [
+            SessionOut(
+                id=session_row["id"],
+                status=session_row["status"],
+                started_at=repo.get_first_turn_ts(session_row["id"]),
+                recommendation_ids=[
+                    rec["id"]
+                    for rec in repo.list_recommendations_by_session(session_row["id"], tenant)
+                ],
+            )
+            for session_row in sessions
+        ]
     finally:
         repo.close()
 
