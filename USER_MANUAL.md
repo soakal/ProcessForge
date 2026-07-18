@@ -204,6 +204,14 @@ read the rest of this manual to use ProcessForge day to day** — the website co
 everything. Keep reading if you want the command-line details, or skip ahead to
 "What's coming next".
 
+**The login page and the dashboard now each start with two short lines of plain
+text**: one sentence explaining what that page is for, and one sentence telling
+you exactly what to do next (e.g. "enter your username and password, then select
+Log In"). This is the first step of an ongoing effort to make every page on the
+website explain itself without needing this manual open — the remaining pages
+(the interview conversation, a recommendation's page, the audit log, and the
+delete-a-business page) will get the same treatment in later updates.
+
 ---
 
 ## Logging in (command-line way)
@@ -547,8 +555,11 @@ past transaction history with that bank.)
 
 ## What's coming next
 
-Nothing is currently planned — every improvement that was on this list has been
-built. If something new comes up, it'll be listed here.
+Adding the same short "what this page is for" / "what to do next" text (see
+"Using the website" above) to the remaining website pages that don't have it
+yet: the interview conversation page, a recommendation's page, the audit log
+page, and the delete-a-business page. The login page and dashboard already
+have it.
 
 ---
 

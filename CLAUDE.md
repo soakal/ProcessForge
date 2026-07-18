@@ -357,6 +357,17 @@ resolution code ever runs. `web/templates/recommendations.html` renders a
 cleared and re-rendered every time `renderRecommendation()` runs (e.g. after
 approve), matching `renderProduct()`'s own clear-before-render discipline.
 
+**Item 7 (clearer UI) has begun — first slice done.** `/ui/login` and `/ui`
+(dashboard) each now open with two short, plain-language lines: a `.page-intro`
+purpose sentence (what this page is for) and a `.next-step` sentence (what to
+do next), styled via two new reusable classes in `web/static/app.css`. Both
+are static template text — nothing dynamic is rendered through them, so this
+introduces no new XSS surface. This establishes the convention the remaining
+pages will reuse. **Still to do for item 7:** `recommendations.html`,
+`interview.html`, `transcript.html`, `audit-log.html`, and
+`businesses_delete.html` each need their own `.page-intro`/`.next-step` copy —
+planned for future cycles, not yet started.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is

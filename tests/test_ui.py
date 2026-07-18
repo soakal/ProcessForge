@@ -18,6 +18,12 @@ def test_ui_login_renders_form():
     assert response.status_code == 200
     assert "username" in response.text
     assert "password" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "Log in with your operator account" in response.text
+    assert 'class="next-step"' in response.text
+    assert "enter your username and password below" in response.text
 
 
 def test_ui_static_css_served():
@@ -39,6 +45,12 @@ def test_ui_dashboard_renders_form():
     assert response.status_code == 200
     assert "business_name" in response.text
     assert "tenant" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "turning a business's manual process into an automation recommendation" in response.text
+    assert 'class="next-step"' in response.text
+    assert "fill in the business name and tenant below" in response.text
 
 
 def test_ui_interview_renders_page():

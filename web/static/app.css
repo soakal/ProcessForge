@@ -88,6 +88,22 @@ button:hover {
   background: #1c3fd6;
 }
 
+/* Plain-language page copy (purpose statement + next-step line).
+   Convention established on /ui/login and /ui (dashboard); later pages
+   reuse these same two classes rather than inventing new ones. */
+.page-intro {
+  font-size: 1rem;
+  color: #333;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.next-step {
+  font-size: 0.9rem;
+  color: #444;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
 /* Error message */
 .error-message {
   color: #b3261e;
