@@ -388,6 +388,115 @@ class KBRepository:
             "automations": len(automation_ids),
         }
 
+    # -- delete_session: same atomic child-first cascade as delete_business, but
+    # scoped to a single session rather than a whole business. The parent
+    # business row is deliberately never touched, and audit_log is left alone
+    # for the same append-only reason documented in delete_business above. --
+    def delete_session(self, session_id: str, tenant: str) -> dict | None:
+        sess = self._conn.execute(
+            "SELECT id FROM sessions WHERE id = ? AND tenant = ?", (session_id, tenant)
+        ).fetchone()
+        if not sess:
+            return None
+
+        def _ids(query: str, params: tuple) -> list[str]:
+            return [row[0] for row in self._conn.execute(query, params).fetchall()]
+
+        def _placeholders(ids: list[str]) -> str:
+            return ", ".join("?" for _ in ids)
+
+        # Gather the full child set first (read-only), before any deletes.
+        session_turn_ids = _ids(
+            "SELECT id FROM session_turns WHERE session_id = ?", (session_id,)
+        )
+
+        task_ids = _ids(
+            "SELECT id FROM tasks WHERE session_id = ? AND tenant = ?", (session_id, tenant)
+        )
+        workflow_graph_ids = _ids(
+            "SELECT id FROM workflow_graphs WHERE session_id = ? AND tenant = ?",
+            (session_id, tenant),
+        )
+
+        opportunity_ids: list[str] = []
+        if task_ids:
+            # opportunities reference tasks via a JSON array column (task_ids), not
+            # a real FK, so json_each() is required to find the matching rows.
+            opportunity_ids = _ids(
+                f"SELECT DISTINCT o.id FROM opportunities o, json_each(o.task_ids) je "
+                f"WHERE je.value IN ({_placeholders(task_ids)}) AND o.tenant = ?",
+                (*task_ids, tenant),
+            )
+
+        recommendation_ids: list[str] = []
+        if opportunity_ids:
+            recommendation_ids = _ids(
+                f"SELECT id FROM recommendations WHERE opportunity_id IN "
+                f"({_placeholders(opportunity_ids)}) AND tenant = ?",
+                (*opportunity_ids, tenant),
+            )
+
+        automation_ids: list[str] = []
+        if recommendation_ids:
+            automation_ids = _ids(
+                f"SELECT id FROM automations WHERE recommendation_id IN "
+                f"({_placeholders(recommendation_ids)}) AND tenant = ?",
+                (*recommendation_ids, tenant),
+            )
+
+        try:
+            # FK-safe order: children before the session itself. All within one
+            # transaction — no commit() until every delete below has succeeded.
+            if automation_ids:
+                self._conn.execute(
+                    f"DELETE FROM automations WHERE id IN ({_placeholders(automation_ids)})",
+                    automation_ids,
+                )
+            if recommendation_ids:
+                self._conn.execute(
+                    f"DELETE FROM recommendations WHERE id IN ({_placeholders(recommendation_ids)})",
+                    recommendation_ids,
+                )
+            if opportunity_ids:
+                self._conn.execute(
+                    f"DELETE FROM opportunities WHERE id IN ({_placeholders(opportunity_ids)})",
+                    opportunity_ids,
+                )
+            if workflow_graph_ids:
+                self._conn.execute(
+                    f"DELETE FROM workflow_graphs WHERE id IN ({_placeholders(workflow_graph_ids)})",
+                    workflow_graph_ids,
+                )
+            if task_ids:
+                self._conn.execute(
+                    f"DELETE FROM tasks WHERE id IN ({_placeholders(task_ids)})", task_ids
+                )
+            if session_turn_ids:
+                self._conn.execute(
+                    "DELETE FROM session_turns WHERE session_id = ?", (session_id,)
+                )
+            self._conn.execute(
+                "DELETE FROM sessions WHERE id = ? AND tenant = ?", (session_id, tenant)
+            )
+            # audit_log is intentionally NOT purged here — same append-only
+            # reasoning as delete_business above. The parent business row is
+            # also intentionally left untouched: deleting a session must never
+            # cascade upward.
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+        return {
+            "sessions": 1,
+            "session_turns": len(session_turn_ids),
+            "tasks": len(task_ids),
+            "workflow_graphs": len(workflow_graph_ids),
+            "opportunities": len(opportunity_ids),
+            "recommendations": len(recommendation_ids),
+            "automations": len(automation_ids),
+        }
+
     # -- tenant resolution: the one piece of business logic the repo must own (§9) --
     def _resolve_tenant(self, kind: str, record: dict) -> str:
         if kind == "businesses":
