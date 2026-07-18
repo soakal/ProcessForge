@@ -189,6 +189,31 @@ def test_ui_audit_log_renders_form():
     assert 'enter a tenant below' in response.text
 
 
+def test_ui_businesses_renders_form():
+    client = _client()
+    response = client.get("/ui/businesses")
+    assert response.status_code == 200
+    assert "tenant" in response.text
+    assert "Load" in response.text
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "how many interview sessions it has" in response.text
+    assert 'class="next-step"' in response.text
+    assert 'enter a tenant below' in response.text
+    # Shared client-side auth/fetch helpers and the tenant-persistence key
+    # this page introduces.
+    assert "requireAuth" in response.text
+    assert "fetchWithAuth" in response.text
+    assert "pf_last_tenant" in response.text
+    assert "innerHTML" not in response.text
+    # Nav now points to the new Businesses page instead of the old
+    # Delete-Business shortcut (the delete route/page itself stays alive,
+    # reached via per-row deep-links in a later cycle).
+    assert '<a href="/ui/businesses">Businesses</a>' in response.text
+    assert '<a href="/ui/businesses/delete">Delete Business</a>' not in response.text
+
+
 def test_ui_businesses_delete_renders_form():
     client = _client()
     response = client.get("/ui/businesses/delete")

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Businesses — ProcessForge{% endblock %}
+{% block content %}
+<h1>Businesses</h1>
+<p class="page-intro">This page lists the businesses recorded for a tenant, so you can see each one's name and how many interview sessions it has.</p>
+<p class="next-step">Next step: enter a tenant below, then select "Load".</p>
+<form id="businesses-form">
+  <div>
+    <label for="tenant">Tenant</label>
+    <input type="text" id="tenant" name="tenant" required>
+  </div>
+  <div id="businesses-error" class="error-message"></div>
+  <button type="submit">Load</button>
+</form>
+<div id="businesses-results"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+  requireAuth();
+
+  const errorBox = document.getElementById("businesses-error");
+  const resultsBox = document.getElementById("businesses-results");
+  const tenantInput = document.getElementById("tenant");
+
+  // Prefill the tenant from the last one loaded on this page, and remember
+  // whatever tenant is loaded next — tokens are cross-tenant, so the server
+  // can't infer this, and re-typing it on every visit would be annoying.
+  const lastTenant = localStorage.getItem("pf_last_tenant");
+  if (lastTenant) {
+    tenantInput.value = lastTenant;
+  }
+
+  function renderResults(businesses) {
+    resultsBox.textContent = "";
+
+    if (businesses.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "No businesses found for this tenant.";
+      resultsBox.appendChild(message);
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Name", "ID", "Sessions"].forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    businesses.forEach((business) => {
+      const row = document.createElement("tr");
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = business.name;
+      row.appendChild(nameCell);
+
+      const idCell = document.createElement("td");
+      idCell.textContent = business.id.slice(0, 8);
+      row.appendChild(idCell);
+
+      const countCell = document.createElement("td");
+      countCell.textContent = String(business.session_count);
+      row.appendChild(countCell);
+
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+
+    resultsBox.appendChild(table);
+  }
+
+  document.getElementById("businesses-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorBox.textContent = "";
+    resultsBox.textContent = "";
+
+    const tenant = tenantInput.value;
+    localStorage.setItem("pf_last_tenant", tenant);
+
+    let response;
+    try {
+      response = await fetchWithAuth("/businesses?tenant=" + encodeURIComponent(tenant));
+    } catch (err) {
+      errorBox.textContent = "Could not reach the server. Please try again.";
+      return;
+    }
+
+    if (response.status === 401) {
+      errorBox.textContent = "You are not authorized to view businesses.";
+      return;
+    }
+
+    if (!response.ok) {
+      errorBox.textContent = "Something went wrong. Please try again.";
+      return;
+    }
+
+    const businesses = await response.json();
+    renderResults(businesses);
+  });
+</script>
+{% endblock %}

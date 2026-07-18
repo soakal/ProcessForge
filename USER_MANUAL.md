@@ -529,6 +529,17 @@ see, not even a hint that it exists.
 
 ---
 
+## Seeing a tenant's businesses — website way
+
+Go to `http://127.0.0.1:8010/ui/businesses`. Type in a tenant and select "Load" to
+see every business recorded for that tenant, with its name and how many interview
+sessions it has. The tenant you last loaded is remembered for next time, so you
+don't have to retype it on every visit. This page replaces the old "Delete
+Business" shortcut in the site's navigation bar — the delete page described below
+still exists and is still reachable, just not from the nav bar directly.
+
+---
+
 ## Seeing who approved what (the audit log) — command-line way
 
 *Using the website? Go to `http://127.0.0.1:8010/ui/audit-log` — skip this section.*

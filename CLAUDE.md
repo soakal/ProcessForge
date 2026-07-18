@@ -453,8 +453,17 @@ delete of one session and its full child chain that mirrors
 untouched), and Item 9 (API: `POST /sessions/{session_id}/delete`, body
 `DeleteSessionRequest {confirm_session_id}` with the exact-match check
 happening before any repo access, identical 404 for unknown-id/wrong-tenant,
-happy path returns the same shape of counts dict as `delete_business`) are
-done; see that doc for the remaining items.
+happy path returns the same shape of counts dict as `delete_business`), and
+Item 10 (UI: a new `GET /ui/businesses` route + `web/templates/businesses.html`,
+mirroring `audit-log.html`'s tenant-input-plus-button pattern — tenant is
+prefilled from and persisted to a new `localStorage` key, `pf_last_tenant`,
+and the results table renders each business's name, a shortened id, and its
+session count via `createElement`/`textContent` only, same zero-`innerHTML`
+discipline as every other page. `base.html`'s nav "Delete Business" link is
+replaced with `<a href="/ui/businesses">Businesses</a>`; the delete page and
+its route are untouched and still reachable directly, just not from the nav
+bar — a later cycle deep-links to it per-row) are done; see that doc for the
+remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

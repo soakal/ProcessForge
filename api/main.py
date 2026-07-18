@@ -362,6 +362,13 @@ def ui_audit_log(request: Request):
     return templates.TemplateResponse(request, "audit-log.html")
 
 
+@app.get("/ui/businesses")
+def ui_businesses(request: Request):
+    # No server-side auth check — requireAuth() in businesses.html redirects
+    # to /ui/login client-side if there's no token, same as the rest of /ui.
+    return templates.TemplateResponse(request, "businesses.html")
+
+
 @app.get("/ui/businesses/delete")
 def ui_businesses_delete(request: Request):
     # No server-side auth check — requireAuth() in businesses_delete.html
