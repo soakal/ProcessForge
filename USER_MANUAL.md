@@ -546,6 +546,19 @@ about it, so there's no "type it again to confirm" step here — unlike the
 permanent deletes described below, a rename is easy to undo by just renaming it
 back. Every rename is recorded in the audit log, same as an approval.
 
+Each business row also has a "Delete" link. Selecting it takes you to the
+delete-confirmation page below, with the business ID and tenant already
+filled in for you — you still have to type the ID a second time yourself to
+confirm, same as always; that one field is never filled in automatically,
+since it's the safeguard against an accidental click.
+
+Inside each business's "Sessions" list (above), every session also has its
+own "Delete" control: type that session's ID into the box next to it and
+select "Delete" to permanently remove just that one interview session (and
+everything that came out of it), right there on the page, without leaving
+`/ui/businesses`. See "Permanently deleting a single session" below for what
+exactly gets removed.
+
 ---
 
 ## Seeing who approved what (the audit log) — command-line way
@@ -594,8 +607,10 @@ past transaction history with that bank.)
 
 ## Permanently deleting a single session — command-line way
 
-There's no website page for this yet (that's still coming) — for now it's
-command-line only.
+*Using the website? Go to `http://127.0.0.1:8010/ui/businesses`, load the
+tenant, expand the business's "Sessions" list, and use the "Delete" control
+next to the session — the same "type the ID again to confirm" safeguard is
+there too — skip this section.*
 
 Sometimes you don't want to delete a whole client, just one interview/session that
 was a mistake, a duplicate, or test data — every task, estimate, recommendation, and

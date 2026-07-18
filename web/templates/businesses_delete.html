@@ -30,6 +30,19 @@
   const errorBox = document.getElementById("delete-error");
   const resultBox = document.getElementById("delete-result");
 
+  // Item 13c: prefill business_id/tenant from the deep-link businesses.html
+  // now sends (?business_id=&tenant=), but never confirm_business_id — Part
+  // D judgment call #5: the operator must type the confirmation manually.
+  const queryParams = new URLSearchParams(window.location.search);
+  const businessIdParam = queryParams.get("business_id");
+  if (businessIdParam) {
+    document.getElementById("business_id").value = businessIdParam;
+  }
+  const tenantParam = queryParams.get("tenant");
+  if (tenantParam) {
+    document.getElementById("tenant").value = tenantParam;
+  }
+
   document.getElementById("delete-business-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     errorBox.textContent = "";

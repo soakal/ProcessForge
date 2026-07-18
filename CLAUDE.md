@@ -472,7 +472,18 @@ Save/Cancel, no confirm-retype since a rename is non-destructive and
 audit-logged (D2); Save posts to the already-shipped `POST
 /businesses/{business_id}/edit` endpoint from Item 7 and updates the row's
 name cell in place from the response on success, or shows a per-row error
-otherwise) are done; see that doc for the remaining items.
+otherwise), and Item 13 (UI: delete actions on `/ui/businesses` — each
+session row in the Sessions expansion (Item 11) now has an inline "Delete"
+with a type-the-session-ID confirm input and a strict client-side `!==`
+guard before `POST /sessions/{session_id}/delete?tenant=` fires (Item 9),
+removing the row and rendering the returned counts on success; each
+business row also gets a "Delete" link to
+`/ui/businesses/delete?business_id=&tenant=` with both values encoded.
+`businesses_delete.html` now prefills `business_id`/`tenant` from
+`URLSearchParams` on load — `confirm_business_id` is deliberately never
+prefilled, so the operator must still type it manually as the destructive
+confirmation step (Part D judgment call #5)) are done; see that doc for the
+remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

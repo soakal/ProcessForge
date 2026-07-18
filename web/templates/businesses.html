@@ -75,6 +75,85 @@
         item.appendChild(recommendationLink);
       });
 
+      // Item 13a: per-session inline delete. Destructive, so — unlike
+      // Rename — this gets a type-the-ID confirm input with a strict
+      // client-side guard before the fetch fires, mirroring
+      // businesses_delete.html's confirm_business_id check.
+      const deleteError = document.createElement("div");
+      deleteError.className = "error-message";
+      item.appendChild(deleteError);
+
+      const confirmLabel = document.createElement("label");
+      confirmLabel.textContent = "Type the session ID to confirm deletion";
+      item.appendChild(confirmLabel);
+
+      const confirmInput = document.createElement("input");
+      confirmInput.type = "text";
+      item.appendChild(confirmInput);
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.textContent = "Delete";
+      item.appendChild(deleteButton);
+
+      deleteButton.addEventListener("click", async () => {
+        deleteError.textContent = "";
+
+        // Client-side guard: the confirmation must exactly match the
+        // session ID before we even attempt the request — the UI must not
+        // be laxer than the API it calls, which enforces the same check
+        // server-side.
+        if (confirmInput.value !== session.id) {
+          deleteError.textContent = "The confirmation doesn't match the session ID.";
+          return;
+        }
+
+        let deleteResponse;
+        try {
+          deleteResponse = await fetchWithAuth(
+            "/sessions/" + encodeURIComponent(session.id) + "/delete?tenant=" + encodeURIComponent(tenant),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ confirm_session_id: confirmInput.value }),
+            }
+          );
+        } catch (err) {
+          deleteError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (deleteResponse.status === 400) {
+          deleteError.textContent = "The confirmation doesn't match the session ID.";
+          return;
+        }
+
+        if (deleteResponse.status === 404) {
+          deleteError.textContent = "Session not found.";
+          return;
+        }
+
+        if (!deleteResponse.ok) {
+          deleteError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const counts = await deleteResponse.json();
+        list.removeChild(item);
+
+        const summary = document.createElement("p");
+        summary.textContent = "Session deleted.";
+        container.appendChild(summary);
+
+        const countsList = document.createElement("ul");
+        Object.keys(counts).forEach((key) => {
+          const countItem = document.createElement("li");
+          countItem.textContent = key + ": " + counts[key];
+          countsList.appendChild(countItem);
+        });
+        container.appendChild(countsList);
+      });
+
       list.appendChild(item);
     });
     container.appendChild(list);
@@ -255,6 +334,19 @@
         const sessions = await response.json();
         renderSessions(sessionsBox, tenant, sessions);
       });
+
+      // Item 13b: per-business delete deep-link. Business delete stays on
+      // its own dedicated confirm page (Part D judgment call #5) rather
+      // than getting an inline confirm like sessions — this just carries
+      // the business_id/tenant over as prefilled query params.
+      const deleteLink = document.createElement("a");
+      deleteLink.href =
+        "/ui/businesses/delete?business_id=" +
+        encodeURIComponent(business.id) +
+        "&tenant=" +
+        encodeURIComponent(tenant);
+      deleteLink.textContent = "Delete";
+      actionsCell.appendChild(deleteLink);
 
       row.appendChild(actionsCell);
 

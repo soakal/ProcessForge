@@ -227,6 +227,19 @@ def test_ui_businesses_renders_form():
     assert "Rename" in response.text
     assert "Business not found." in response.text
     assert "Name must be between 1 and 500 characters." in response.text
+    # Item 13a: per-session inline delete — strict !== confirm guard before
+    # the fetch fires, and the /sessions/{sid}/delete URL pattern.
+    assert "confirmInput.value !== session.id" in response.text
+    assert (
+        '"/sessions/" + encodeURIComponent(session.id) + "/delete?tenant=" + encodeURIComponent(tenant)'
+        in response.text
+    )
+    assert "confirm_session_id" in response.text
+    assert "The confirmation doesn't match the session ID." in response.text
+    # Item 13b: per-business delete deep-link to the dedicated confirm page,
+    # carrying business_id/tenant as encoded query params.
+    assert '"/ui/businesses/delete?business_id=" +' in response.text
+    assert '"&tenant=" +' in response.text
 
 
 def test_ui_businesses_delete_renders_form():
@@ -243,3 +256,11 @@ def test_ui_businesses_delete_renders_form():
     assert 'class="next-step"' in response.text
     assert "double-check the business ID before deleting" in response.text
     assert "this action cannot be undone" in response.text
+    assert "innerHTML" not in response.text
+    # Item 13c: business_id/tenant are prefilled from the incoming
+    # ?business_id=&tenant= deep-link via URLSearchParams; confirm_business_id
+    # is provably never touched by that prefill code.
+    assert "URLSearchParams" in response.text
+    assert 'document.getElementById("business_id").value = businessIdParam;' in response.text
+    assert 'document.getElementById("tenant").value = tenantParam;' in response.text
+    assert 'getElementById("confirm_business_id").value =' not in response.text
