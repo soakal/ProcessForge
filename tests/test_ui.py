@@ -83,6 +83,25 @@ def test_ui_interview_transcript_renders_page():
     assert "innerHTML" not in response.text
 
 
+def test_ui_recommendation_renders_product_link_code():
+    client = _client()
+    response = client.get("/ui/recommendations/some-fake-id")
+    assert response.status_code == 200
+    # TestClient's GET never executes the inline fetch-on-load script against
+    # a real backend automation, so this only confirms the static page
+    # structure is present: the renderProduct() function that builds the
+    # visible product link, the container/element ids it targets, and the
+    # createElement("a") + .href assignment that make up the scheme-checked
+    # visible-link code path (isSafeHttpUrl gates a real <a href> against a
+    # textContent fallback).
+    assert "renderProduct" in response.text
+    assert "automation-product-link" in response.text
+    assert 'createElement("a")' in response.text
+    assert "isSafeHttpUrl" in response.text
+    assert ".href = productUrl" in response.text
+    assert "innerHTML" not in response.text
+
+
 def test_ui_audit_log_renders_form():
     client = _client()
     response = client.get("/ui/audit-log")

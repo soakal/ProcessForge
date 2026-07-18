@@ -16,6 +16,11 @@
   <p id="automation-blast-radius"></p>
   <p id="automation-rollback"></p>
   <p id="automation-approval-state"></p>
+  <div id="automation-product" style="display:none;">
+    <h3>Built product</h3>
+    <p id="automation-product-link"></p>
+    <p id="automation-product-notes"></p>
+  </div>
   <form id="feedback-form">
     <div>
       <label for="feedback-text">Feedback</label>
@@ -77,6 +82,61 @@
     document.getElementById("automation-blast-radius").textContent = "Blast radius: " + automation.blast_radius;
     document.getElementById("automation-rollback").textContent = "Rollback: " + automation.rollback;
     document.getElementById("automation-approval-state").textContent = "Automation status: " + automation.approval_state;
+    renderProduct(automation);
+  }
+
+  function renderProduct(automation) {
+    const productArea = document.getElementById("automation-product");
+    const productLink = document.getElementById("automation-product-link");
+    const productNotes = document.getElementById("automation-product-notes");
+
+    // Clear any previously rendered content (childNodes, not just text) —
+    // this is re-run every time an automation renders (build, then any
+    // later feedback revision), so stale nodes from a prior automation
+    // must not linger.
+    while (productLink.firstChild) {
+      productLink.removeChild(productLink.firstChild);
+    }
+    productNotes.textContent = "";
+
+    const spec = automation.spec || {};
+    const productUrl = spec.product_url;
+
+    if (!productUrl) {
+      // Genuinely hidden, not just empty — no content is appended below.
+      productArea.style.display = "none";
+      return;
+    }
+
+    // Defense-in-depth: the backend (POST /automations/{id}/link) already
+    // restricts product_url to http/https, but a stored value is never
+    // trusted blindly when building an href. Re-validate the scheme here
+    // before ever assigning it to `.href`; if it somehow isn't http(s),
+    // render the raw text instead of a clickable link.
+    let isSafeHttpUrl = false;
+    try {
+      const parsed = new URL(productUrl);
+      isSafeHttpUrl = parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (err) {
+      isSafeHttpUrl = false;
+    }
+
+    productArea.style.display = "block";
+
+    if (isSafeHttpUrl) {
+      const link = document.createElement("a");
+      link.href = productUrl;
+      link.textContent = productUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      productLink.appendChild(link);
+    } else {
+      productLink.textContent = productUrl;
+    }
+
+    if (spec.product_notes) {
+      productNotes.textContent = spec.product_notes;
+    }
   }
 
   if (!tenant) {

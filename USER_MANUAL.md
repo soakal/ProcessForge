@@ -473,8 +473,19 @@ ProcessForge which client/company this is for.
    The link must start with `http://` or `https://`; anything else (a typo, or a
    web address that's missing a scheme) is rejected with an error rather than
    saved, since a bad link here would otherwise show up as a broken or unsafe
-   clickable link on the website in a future update. This doesn't run or open
-   the link — it just stores the address as text for a person to click later.
+   clickable link on the website. This doesn't run or open the link — it just
+   stores the address as text for a person to click later.
+
+   *Using the website?* Once you've saved a link this way, open the
+   recommendation's page (`http://127.0.0.1:8010/ui/recommendations/THE_ID?tenant=acme`)
+   and scroll to the automation section — a "Built product" area appears there
+   showing the link as a real clickable link (opens in a new tab), plus your
+   notes underneath if you added any. If no link has been saved yet, this area
+   simply doesn't show up. As an extra safety check on top of the one already
+   done when you saved the link, the website double-checks the address really
+   does start with `http://` or `https://` before turning it into a clickable
+   link — if that check ever somehow failed, it would show the address as
+   plain text instead of a link, rather than risk a broken or unsafe one.
 
 **A note on privacy between clients:** if you try to look up, approve, or build
 something using the wrong `tenant` value (e.g. a typo, or accidentally mixing up

@@ -317,6 +317,26 @@ keys directly inside the existing free-form `automation.spec: dict` JSON blob
 via `repo.put` — no change to `contracts/records.py`, no `schema_version`
 bump. Both fields are pure data, never executed or evaluated.
 
+**That clickable-link display now exists.** `web/templates/recommendations.html`'s
+`renderAutomation()` calls a new `renderProduct()` on every render (initial
+build and every later feedback revision) that reads `automation.spec.product_url`/
+`product_notes` — pure client-side, no new backend endpoint or route. A
+dedicated `#automation-product` block is `display:none` with no appended
+content whenever `product_url` is absent (genuinely hidden, not just empty).
+When present, the link is built with `document.createElement("a")` +
+`textContent` only (never `innerHTML` — a repo-wide `innerHTML` grep across
+`web/templates` still returns zero matches), and the URL's scheme is
+re-validated client-side (`new URL(productUrl).protocol` checked against
+`"http:"`/`"https:"`) immediately before ever assigning `.href` — defense-in-depth
+on top of `LinkRequest`'s own backend validator, since a stored value should
+never be trusted blindly when building an `href`. If that re-check somehow
+fails, the raw value is rendered as plain text via `textContent` instead of a
+clickable link, never omitted-vs-shown inconsistently. `product_notes` renders
+via `textContent` if present. Previously-rendered link/notes content is
+explicitly cleared (`removeChild` loop + `textContent = ""`) at the top of
+every `renderProduct()` call so a stale link from a prior automation can't
+linger across a feedback-revision re-render.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is
