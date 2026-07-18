@@ -212,6 +212,25 @@ class DeleteBusinessRequest(BaseModel):
     confirm_business_id: str
 
 
+class EditBusinessRequest(BaseModel):
+    # min_length=1/max_length=500 are checked against the RAW (pre-strip)
+    # value by Pydantic's built-in str constraints, so an over-length name is
+    # rejected on its raw length even before the validator below strips it.
+    # min_length=1 alone does not catch a whitespace-only name (e.g. " "
+    # satisfies it), so the validator re-checks emptiness after stripping and
+    # stores the stripped value — mirrors LinkRequest.product_url's
+    # field_validator pattern above.
+    name: str = Field(min_length=1, max_length=500)
+
+    @field_validator("name")
+    @classmethod
+    def _strip_and_require_nonblank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must not be blank")
+        return stripped
+
+
 class SessionResponse(BaseModel):
     business_id: str
     session_id: str
@@ -926,6 +945,50 @@ def get_business_sessions(
             )
             for session_row in sessions
         ]
+    finally:
+        repo.close()
+
+
+@app.post("/businesses/{business_id}/edit")
+def edit_business(
+    business_id: str,
+    tenant: str,
+    body: EditBusinessRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    operator = _authenticate(authorization, db_path)
+    repo, _ctx = _open_repo(db_path)
+    try:
+        row = repo.get("businesses", business_id, tenant)
+        if row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which.
+            raise HTTPException(status_code=404, detail="not found")
+        business = Business(**row)
+        old_name = business.name
+        if body.name == old_name:
+            # No-op rename (stripped name matches the current name): succeed
+            # but skip repo.put/log_approval_change entirely — no audit row
+            # for a rename that changes nothing (spec Item 7).
+            return {"id": business.id, "name": business.name}
+        business.name = body.name
+        repo.put("businesses", business.model_dump(mode="json"))
+        repo.log_approval_change(
+            operator_id=operator["id"],
+            tenant=tenant,
+            record_kind="business",
+            record_id=business_id,
+            field="name",
+            old_value=old_name,
+            new_value=body.name,
+        )
+        return {"id": business.id, "name": business.name}
     finally:
         repo.close()
 
