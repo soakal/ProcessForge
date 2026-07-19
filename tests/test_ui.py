@@ -72,6 +72,22 @@ def test_ui_static_css_audit_log_horizontal_scroll():
     assert "overflow-x: auto" in css
 
 
+def test_ui_static_css_automation_spec_and_transcript_turn():
+    # Item 6 of docs/FEATURE-SPEC-mobile-friendly.md: the JSON automation
+    # spec <pre> gets an in-container horizontal-scroll wrapper (same
+    # reasoning as #audit-log-results), and .transcript-turn gets spacing
+    # rules for visual separation between question/answer turns.
+    client = _client()
+    response = client.get("/ui/static/app.css")
+    assert response.status_code == 200
+    css = response.text
+    automation_spec_rule = re.search(r"#automation-spec\s*\{[^}]*\}", css)
+    assert automation_spec_rule is not None
+    assert "overflow-x: auto" in automation_spec_rule.group(0)
+    assert re.search(r"\.transcript-turn\s*\{[^}]*\}", css) is not None
+    assert re.search(r"\.transcript-turn\s+p\s*\{[^}]*\}", css) is not None
+
+
 def test_ui_static_css_businesses_stacked_table():
     # Item 4 of docs/FEATURE-SPEC-mobile-friendly.md: businesses table gets
     # card-stacked rows at <=640px via table.stacked + td::before labels,

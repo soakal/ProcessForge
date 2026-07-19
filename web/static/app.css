@@ -179,6 +179,28 @@ th {
   white-space: nowrap;
 }
 
+/* Item 6 of docs/FEATURE-SPEC-mobile-friendly.md: the JSON automation spec
+   <pre> on recommendations.html scrolls inside its own box instead of
+   forcing the whole page to pan sideways (pre-wrap would destroy the JSON
+   indentation, so this scrolls rather than wraps). Global, same reasoning
+   as #audit-log-results above. */
+#automation-spec {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* Item 6: visual separation between question/answer turns on
+   transcript.html — inherently mobile-safe already (stacked divs,
+   textContent only), this is a nice-to-have spacing touch, not a
+   width-dependent fix, so it's global rather than inside the 640px query. */
+.transcript-turn {
+  margin-bottom: 0.75rem;
+}
+
+.transcript-turn p {
+  margin: 0.15rem 0;
+}
+
 /* Mobile breakpoint — the repo's single responsive convention: every
    @media rule in this file uses exactly (max-width: 640px), so touch/layout
    adjustments live here and nowhere else. */
