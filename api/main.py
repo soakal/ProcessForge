@@ -16,6 +16,7 @@ import os
 import time
 import uuid
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -323,8 +324,8 @@ class EditBusinessRequest(BaseModel):
 
 
 class PublicIntakeStartRequest(BaseModel):
-    """Body for POST /public/intake (Item 2, not wired this cycle). Bounds
-    and strip-and-require-nonblank validators mirror EditBusinessRequest.name
+    """Body for POST /public/intake (Item 1). Bounds and
+    strip-and-require-nonblank validators mirror EditBusinessRequest.name
     above. `website` is a hidden honeypot field (D6) — real submitters never
     see or fill it; it carries no secret, so no 422-redaction concern like
     the password fields above."""
@@ -395,6 +396,21 @@ def _check_public_rate_limit(client_host: str) -> None:
     _public_rate_limit_buckets[key] += 1
     if _public_rate_limit_buckets[key] > limit:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+def _public_daily_cap() -> int:
+    """Read PROCESSFORGE_PUBLIC_MAX_LEADS_PER_DAY fresh on every call (same
+    per-call-read convention as _check_rate_limit/_max_interview_answers).
+    Blank, non-integer, or less-than-1 values all fall back to
+    _DEFAULT_PUBLIC_MAX_LEADS_PER_DAY."""
+    raw_cap = os.environ.get("PROCESSFORGE_PUBLIC_MAX_LEADS_PER_DAY", "")
+    try:
+        cap = int(raw_cap) if raw_cap.strip() else _DEFAULT_PUBLIC_MAX_LEADS_PER_DAY
+    except ValueError:
+        cap = _DEFAULT_PUBLIC_MAX_LEADS_PER_DAY
+    if cap < 1:
+        cap = _DEFAULT_PUBLIC_MAX_LEADS_PER_DAY
+    return cap
 
 
 def _max_interview_answers() -> int:
@@ -741,6 +757,82 @@ def get_interview_transcript(
             TurnOut(turn_index=turn["turn_index"], role=turn["role"], content=turn["content"])
             for turn in turns
         ]
+    finally:
+        repo.close()
+
+
+# --- Public lead intake (docs/FEATURE-SPEC-public-lead-intake.md, Item 1) ---
+@app.post("/public/intake")
+def start_public_intake(
+    body: PublicIntakeStartRequest,
+    request: Request,
+) -> dict:
+    # No auth (this is the public, unauthenticated surface). Rate-limit is
+    # the first statement in every /public handler (G5) — its own limiter,
+    # its own disjoint bucket keyspace, never _check_rate_limit.
+    client_host = request.client.host if request.client else "unknown"
+    _check_public_rate_limit(client_host)
+
+    # Honeypot (D6): a real submitter never sees/fills `website`. A non-blank
+    # value returns a shape-identical fake success WITHOUT opening any repo —
+    # checked before any repo/db access, so a bot can't tell it was dropped
+    # and no honeypot hit ever touches the DB.
+    if body.website.strip():
+        return {"session_id": str(uuid.uuid4()), "question": _INTERVIEW_OPENER}
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    repo, ctx = _open_repo(db_path)
+    try:
+        # Daily cap (D5c/D7 judgment call #7): DB-derived from each
+        # public-leads Business's meta.submitted_at date, not an in-memory
+        # counter — restart-proof and botnet-resistant. Compared against
+        # today's UTC date, string-prefix (first 10 chars = YYYY-MM-DD) of
+        # the ISO timestamp stamped onto meta.submitted_at below.
+        today = datetime.now(timezone.utc).date().isoformat()
+        submitted_today = sum(
+            1
+            for row in repo.list_businesses(_PUBLIC_TENANT)
+            if row.get("meta", {}).get("submitted_at", "")[:10] == today
+        )
+        if submitted_today >= _public_daily_cap():
+            raise HTTPException(status_code=429, detail="please try again later")
+
+        sink = KBSink()
+        # Fresh UUID every time (D3) — no lookup-by-name, no attach-to-existing.
+        # Tenant is always the hardcoded reserved constant (G2) — the request
+        # body has no tenant field, so there is nothing a client could supply.
+        business = Business(
+            id=str(uuid.uuid4()),
+            tenant=_PUBLIC_TENANT,
+            name=body.business_name,
+            meta={
+                "source": "public_intake",
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "contact": body.contact,
+            },
+        )
+        sink.save(business, ctx)
+
+        # transcript_ref points at the session's own id (turns are stored keyed
+        # by session_id via repo.add_turn/list_turns, not a separate blob) —
+        # same convention as start_interview/start_business_interview above.
+        session_id = str(uuid.uuid4())
+        session = Session(
+            id=session_id,
+            business_id=business.id,
+            status=SessionStatus.active,
+            transcript_ref=session_id,
+        )
+        sink.save(session, ctx)
+
+        # Contact pair seeded first (D4), then the opener — three turns total.
+        repo.add_turn(session_id, "question", _PUBLIC_CONTACT_QUESTION)
+        repo.add_turn(session_id, "answer", body.contact)
+        repo.add_turn(session_id, "question", _INTERVIEW_OPENER)
+
+        # No business_id/tenant in the response (G4) — session_id is the sole
+        # capability token the prospect needs for the answer endpoint (Item 2).
+        return {"session_id": session_id, "question": _INTERVIEW_OPENER}
     finally:
         repo.close()
 
