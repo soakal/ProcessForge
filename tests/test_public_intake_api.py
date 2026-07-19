@@ -1,15 +1,19 @@
-"""Item 1 for the public lead intake feature
-(docs/FEATURE-SPEC-public-lead-intake.md): the primitives added in cycle 1
-(_check_public_rate_limit's disjoint-keyspace behavior and env fallback,
-_NoLLMCtx.complete() raising, PublicIntakeStartRequest's validation), plus
-this cycle's endpoint-level coverage of POST /public/intake itself: happy-path
+"""Public lead intake feature (docs/FEATURE-SPEC-public-lead-intake.md):
+Item 1's primitives (_check_public_rate_limit's disjoint-keyspace behavior
+and env fallback, _NoLLMCtx.complete() raising, PublicIntakeStartRequest's
+validation) and endpoint-level coverage of POST /public/intake (happy-path
 repo state, no-auth-required, honeypot no-write, client-supplied-tenant
-ignored, 422 validation, the daily cap, and the disjoint per-IP rate limit.
-Item 2's POST /public/intake/{session_id}/answer is not wired yet — no tests
-here exercise it."""
+ignored, 422 validation, the daily cap, and the disjoint per-IP rate limit),
+plus Item 2's POST /public/intake/{session_id}/answer: the deterministic
+ladder driven end to end, LLM-free completion producing tenant-scoped
+pipeline artifacts, contact exclusion from extraction, tenant isolation
+(unknown id and real operator-tenant id both 404 identically, no turn
+written), the 409 on an already-complete session, validation, and the G4
+response-shape guarantee."""
 from __future__ import annotations
 
 import os
+import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +22,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from auth.repository import AuthRepository
 from kb.repository import KBRepository
 from pipeline import _migrate
 
@@ -513,3 +518,325 @@ def test_start_public_intake_rate_limit_disjoint_from_operator_endpoint(monkeypa
         json={"business_name": "Real Co", "tenant": "acme", "answers": ["x"]},
     )
     assert operator_response.status_code == 401
+
+
+# --- Item 2: POST /public/intake/{session_id}/answer ---
+
+
+def _seed_operator(db_path, username="alice", password="correct-horse-battery"):
+    """Migrate the schema and create an operator directly via AuthRepository,
+    mirroring tests/test_api.py's own seeding style — needed here only for
+    the isolation tests that must reach a real, authenticated operator-tenant
+    session/endpoint."""
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        repo.create_operator(username, password)
+    finally:
+        repo.close()
+
+
+def _login_token(client, db_path, username="alice", password="correct-horse-battery"):
+    _seed_operator(db_path, username=username, password=password)
+    response = client.post("/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
+def _start_operator_interview(client, token, tenant="acme", business_name="Real Co"):
+    response = client.post(
+        "/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"business_name": business_name, "tenant": tenant},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _start_public(client, business_name="Acme Leads Co", contact="lead@example.com"):
+    response = client.post(
+        "/public/intake", json={"business_name": business_name, "contact": contact}
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _answer_public(client, session_id, answer):
+    return client.post(f"/public/intake/{session_id}/answer", json={"answer": answer})
+
+
+def _drive_public_to_completion(client, session_id):
+    """Submits the 6 answers a public prospect gives after the opening
+    question (the 1st answers the opener; the 2nd-6th answer each ladder
+    question in turn) and returns the 6 responses in order. Response 6 is
+    always the completion body per Item 2's design."""
+    contents = [
+        "answering the opener",
+        "about 2 hours, once a week",
+        "a clean automated report",
+        "a shared drive folder",
+        "only rows marked open",
+        "an Excel file",
+    ]
+    return [_answer_public(client, session_id, content) for content in contents]
+
+
+def test_answer_public_intake_full_drive_ladder_then_completion(monkeypatch, tmp_path):
+    from api.main import _PUBLIC_THANKS
+
+    from stages.interviewer import _next_question_deterministic
+
+    _set_env(monkeypatch, tmp_path)
+    client = _client()
+    started = _start_public(client)
+
+    responses = _drive_public_to_completion(client, started["session_id"])
+
+    for i, expected_s in enumerate([1, 2, 3, 4, 5], start=0):
+        assert responses[i].status_code == 200
+        body = responses[i].json()
+        assert set(body.keys()) == {"session_id", "question"}
+        assert body["question"] == _next_question_deterministic(expected_s)
+
+    final = responses[5]
+    assert final.status_code == 200
+    final_body = final.json()
+    assert final_body == {"status": "complete", "message": _PUBLIC_THANKS}
+    for forbidden in ("task_count", "opportunities", "recommendations", "session_id", "business_id", "id"):
+        assert forbidden not in final_body
+
+
+def test_answer_public_intake_completion_creates_pipeline_artifacts_tenant_scoped(monkeypatch, tmp_path):
+    db_path = _set_env(monkeypatch, tmp_path)
+    client = _client()
+    token = _login_token(client, db_path)
+    started = _start_public(client)
+    session_id = started["session_id"]
+
+    responses = _drive_public_to_completion(client, session_id)
+    assert responses[-1].json()["status"] == "complete"
+
+    # Session is complete and the full transcript is 14 turns (7 Q / 7 A),
+    # starting with the contact pair — verified via the existing
+    # authenticated transcript endpoint under tenant=public-leads.
+    transcript_response = client.get(
+        f"/interviews/{session_id}/transcript",
+        params={"tenant": _PUBLIC_TENANT},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert transcript_response.status_code == 200
+    turns = transcript_response.json()
+    assert len(turns) == 14
+    assert turns[0]["role"] == "question"
+    assert turns[1]["role"] == "answer"
+    q_count = sum(1 for t in turns if t["role"] == "question")
+    a_count = sum(1 for t in turns if t["role"] == "answer")
+    assert q_count == 7
+    assert a_count == 7
+
+    repo = KBRepository(db_path)
+    try:
+        session_row = repo.get("sessions", session_id, _PUBLIC_TENANT)
+        assert session_row["status"] == "complete"
+        business_id = session_row["business_id"]
+    finally:
+        repo.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        task_count = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE session_id = ? AND tenant = ?",
+            (session_id, _PUBLIC_TENANT),
+        ).fetchone()[0]
+        graph_count = conn.execute(
+            "SELECT COUNT(*) FROM workflow_graphs WHERE session_id = ? AND tenant = ?",
+            (session_id, _PUBLIC_TENANT),
+        ).fetchone()[0]
+        opportunity_count = conn.execute(
+            "SELECT COUNT(*) FROM opportunities WHERE tenant = ?", (_PUBLIC_TENANT,)
+        ).fetchone()[0]
+        recommendation_count = conn.execute(
+            "SELECT COUNT(*) FROM recommendations WHERE tenant = ?", (_PUBLIC_TENANT,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert task_count >= 1
+    assert graph_count == 1
+    assert opportunity_count >= 1
+    assert recommendation_count >= 1
+    assert business_id  # sanity: session resolved to a real business
+
+
+def test_answer_public_intake_contact_excluded_from_extraction(monkeypatch, tmp_path):
+    db_path = _set_env(monkeypatch, tmp_path)
+    client = _client()
+    marker = "UNIQUE-CONTACT-MARKER test@example.com"
+    started = _start_public(client, contact=marker)
+    session_id = started["session_id"]
+
+    responses = _drive_public_to_completion(client, session_id)
+    assert responses[-1].json()["status"] == "complete"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT task, frequency, time_spent_min, desired_outcome, tools_used, dependencies "
+            "FROM tasks WHERE session_id = ? AND tenant = ?",
+            (session_id, _PUBLIC_TENANT),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert rows
+    for row in rows:
+        for field in row:
+            assert marker not in str(field)
+
+
+def test_answer_public_intake_unknown_session_id_404(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    client = _client()
+
+    response = _answer_public(client, str(uuid.uuid4()), "some answer")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "not found"}
+
+
+def test_answer_public_intake_operator_tenant_session_gets_identical_404_and_no_turn_written(
+    monkeypatch, tmp_path
+):
+    db_path = _set_env(monkeypatch, tmp_path)
+    client = _client()
+    token = _login_token(client, db_path)
+    real_session = _start_operator_interview(client, token, tenant="acme")
+
+    unknown_response = _answer_public(client, str(uuid.uuid4()), "some answer")
+    real_tenant_response = _answer_public(client, real_session["session_id"], "some answer")
+
+    assert real_tenant_response.status_code == unknown_response.status_code == 404
+    assert real_tenant_response.json() == unknown_response.json() == {"detail": "not found"}
+
+    repo = KBRepository(db_path)
+    try:
+        turns = repo.list_turns(real_session["session_id"])
+    finally:
+        repo.close()
+    # Only the single opener question seeded by /interviews itself — the
+    # rejected public answer attempt must not have added a turn.
+    assert len(turns) == 1
+    assert turns[0]["role"] == "question"
+
+
+def test_answer_public_intake_completed_session_409_no_duplicate_artifacts(monkeypatch, tmp_path):
+    db_path = _set_env(monkeypatch, tmp_path)
+    client = _client()
+    started = _start_public(client)
+    session_id = started["session_id"]
+    responses = _drive_public_to_completion(client, session_id)
+    assert responses[-1].json()["status"] == "complete"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        before = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE session_id = ? AND tenant = ?",
+            (session_id, _PUBLIC_TENANT),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    extra = _answer_public(client, session_id, "one more answer after completion")
+
+    assert extra.status_code == 409
+    assert extra.json() == {"detail": "interview already complete"}
+
+    conn = sqlite3.connect(db_path)
+    try:
+        after = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE session_id = ? AND tenant = ?",
+            (session_id, _PUBLIC_TENANT),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert after == before
+
+
+@pytest.mark.parametrize("value", ["   ", "x" * 4001])
+def test_answer_public_intake_validation_422_no_turn_written(monkeypatch, tmp_path, value):
+    db_path = _set_env(monkeypatch, tmp_path)
+    client = _client()
+    started = _start_public(client)
+    session_id = started["session_id"]
+
+    response = client.post(
+        f"/public/intake/{session_id}/answer",
+        headers={"Authorization": "Bearer nonsense"},
+        json={"answer": value},
+    )
+
+    assert response.status_code == 422
+
+    repo = KBRepository(db_path)
+    try:
+        turns = repo.list_turns(session_id)
+    finally:
+        repo.close()
+    # Only the 3 turns start_public_intake seeded — nothing added by the
+    # rejected request.
+    assert len(turns) == 3
+
+
+def test_answer_public_intake_garbage_auth_header_ignored(monkeypatch, tmp_path):
+    _set_env(monkeypatch, tmp_path)
+    client = _client()
+    started = _start_public(client)
+
+    response = client.post(
+        f"/public/intake/{started['session_id']}/answer",
+        headers={"Authorization": "Bearer nonsense"},
+        json={"answer": "a perfectly fine answer"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["question"]
+
+
+def test_answer_public_intake_no_response_leaks_ids_tenant_or_business_id(monkeypatch, tmp_path):
+    """G4, across every branch this endpoint can take: question-branch
+    responses carry only session_id/question, and the completion response
+    carries neither (checked in the full-drive test above). No response body
+    here may ever contain the word "tenant", a business_id key, or any id
+    besides the session_id the caller already holds."""
+    _set_env(monkeypatch, tmp_path)
+    client = _client()
+    started = _start_public(client)
+    session_id = started["session_id"]
+
+    responses = _drive_public_to_completion(client, session_id)
+
+    for response in responses[:5]:
+        body = response.json()
+        assert set(body.keys()) == {"session_id", "question"}
+        assert body["session_id"] == session_id
+
+    completion_body = responses[5].json()
+    assert set(completion_body.keys()) == {"status", "message"}
+
+
+def test_answer_public_intake_rate_limit_is_first_statement(monkeypatch, tmp_path):
+    """A tripped public rate limit blocks the answer endpoint too — proves
+    _check_public_rate_limit (not _check_rate_limit) gates this handler and
+    runs before any repo access (an unknown session id would otherwise also
+    404, so a 429 here is the only way to prove the rate limiter, not the
+    session lookup, fired first)."""
+    _set_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "1")
+    client = _client()
+    started = _start_public(client)
+
+    # The start call above already consumed the window's one slot.
+    response = _answer_public(client, started["session_id"], "some answer")
+
+    assert response.status_code == 429

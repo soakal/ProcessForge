@@ -343,6 +343,25 @@ class PublicIntakeStartRequest(BaseModel):
         return stripped
 
 
+class PublicAnswerRequest(BaseModel):
+    """Body for POST /public/intake/{session_id}/answer (Item 2). Same
+    strip-and-require-nonblank validator pattern as PublicIntakeStartRequest/
+    EditBusinessRequest above; max_length=4000 mirrors AnswerRequest's
+    operator-side bound (there is no explicit max_length on AnswerRequest
+    itself, but 4000 matches the DoS-defense-in-depth convention documented
+    on RefineRequest.turns)."""
+
+    answer: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("answer")
+    @classmethod
+    def _strip_and_require_nonblank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
 class SessionResponse(BaseModel):
     business_id: str
     session_id: str
@@ -833,6 +852,80 @@ def start_public_intake(
         # No business_id/tenant in the response (G4) — session_id is the sole
         # capability token the prospect needs for the answer endpoint (Item 2).
         return {"session_id": session_id, "question": _INTERVIEW_OPENER}
+    finally:
+        repo.close()
+
+
+# --- Public lead intake (docs/FEATURE-SPEC-public-lead-intake.md, Item 2) ---
+@app.post("/public/intake/{session_id}/answer")
+def answer_public_intake(
+    session_id: str,
+    body: PublicAnswerRequest,
+    request: Request,
+) -> dict:
+    # No auth (public surface). Rate-limit is the first statement in every
+    # /public handler (G5) — its own limiter, its own disjoint bucket
+    # keyspace, never _check_rate_limit.
+    client_host = request.client.host if request.client else "unknown"
+    _check_public_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    repo, _ctx = _open_repo(db_path)
+    try:
+        # Tenant-locked to the reserved constant (G2), never a caller-supplied
+        # tenant — this single check is what makes a leaked/guessed operator-
+        # tenant session id worthless here: a real tenant's session can never
+        # be found under _PUBLIC_TENANT, so it 404s identically to an unknown
+        # id (same discipline answer_interview follows with its own tenant
+        # param, and get_interview_transcript follows before list_turns).
+        session_row = repo.get("sessions", session_id, _PUBLIC_TENANT)
+        if session_row is None:
+            raise HTTPException(status_code=404, detail="not found")
+        if session_row["status"] != SessionStatus.active.value:
+            raise HTTPException(status_code=409, detail="interview already complete")
+
+        repo.add_turn(session_id, "answer", body.answer)
+        turns = repo.list_turns(session_id)
+        answer_count = sum(1 for turn in turns if turn["role"] == "answer")
+        # Substantive answers only, excluding the seeded contact answer (D4) —
+        # this is the ladder index, not the raw answer count.
+        s = answer_count - 1
+
+        # Zero-LLM guarantee (D1/G3): the deterministic ladder is called
+        # directly, never stages.interviewer.next_question, which would try
+        # the LLM first on a deployed box with a real provider configured.
+        question = interviewer._next_question_deterministic(s)
+
+        if question is not None:
+            repo.add_turn(session_id, "question", question)
+            return {"session_id": session_id, "question": question}
+
+        # Completion path (s >= 6): build the extraction transcript from
+        # every answer-role turn EXCLUDING the first (the seeded contact
+        # answer, D4) so contact text never pollutes any Task field.
+        business_row = repo.get("businesses", session_row["business_id"], _PUBLIC_TENANT)
+        business = Business(**business_row)
+        session = Session(**session_row)
+        session.status = SessionStatus.complete
+
+        sink = KBSink()
+        # Zero-LLM ctx (D1/G3) — its complete() unconditionally raises,
+        # forcing interviewer.run()'s LLM-first extraction to fall back to
+        # the deterministic path by construction. session_id must be the
+        # real one (not _open_repo's empty placeholder) so Task.session_id
+        # persists correctly, same requirement answer_interview documents.
+        ctx = _NoLLMCtx(repo, session_id=session_id)
+        sink.save(session, ctx)
+
+        answer_turns = [turn["content"] for turn in turns if turn["role"] == "answer"]
+        transcript = "\n".join(answer_turns[1:])
+        tasks = interviewer.run(transcript, ctx)
+        _finish_pipeline(business, session, tasks, repo, sink, ctx)
+
+        # Fixed thank-you only (D7/G4) — the SessionResult is discarded
+        # entirely: no ids, no tenant, no ROI, no task/opportunity/
+        # recommendation data is ever returned to the prospect.
+        return {"status": "complete", "message": _PUBLIC_THANKS}
     finally:
         repo.close()
 
