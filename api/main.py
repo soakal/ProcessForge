@@ -21,12 +21,16 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator
 
 from auth.hashing import hash_password, verify_password
-from auth.repository import AuthRepository
+from auth.repository import AuthRepository, DuplicateOperatorError, OperatorNotFoundError
+from auth.users import _MIN_PASSWORD_LENGTH
 from contracts.records import (
     ApprovalState,
     Automation,
@@ -50,6 +54,44 @@ app = FastAPI()
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/ui/static", StaticFiles(directory=_WEB_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=_WEB_DIR / "templates")
+
+# Field names that carry a raw password value in one of LoginRequest,
+# CreateOperatorRequest, or OperatorPasswordRequest below.
+_PASSWORD_FIELD_NAMES = {"password", "new_password"}
+
+
+def _validation_error_leaks_password(error: dict) -> bool:
+    """True if this Pydantic/FastAPI validation error's `input` could
+    contain a raw password. Covers both leak shapes seen in practice: a
+    field-level error on the password field itself (`loc` names it, and
+    `input` is the submitted password value), and a "missing" error on a
+    *different* required field (e.g. username), where Pydantic reports the
+    whole parent object — including any sibling password field — as
+    `input`."""
+    loc = error.get("loc", ())
+    if any(part in _PASSWORD_FIELD_NAMES for part in loc):
+        return True
+    input_value = error.get("input")
+    return isinstance(input_value, dict) and bool(_PASSWORD_FIELD_NAMES & input_value.keys())
+
+
+@app.exception_handler(RequestValidationError)
+async def _redact_password_validation_errors(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """FastAPI's default 422 handler echoes each error's raw `input`
+    verbatim — for a "missing field" error, `input` is the *entire*
+    submitted body, so an unredacted 422 on LoginRequest,
+    CreateOperatorRequest, or OperatorPasswordRequest can leak a real
+    password in the HTTP response. Replace `input` with a redaction marker
+    on any error touched by a password field; everything else (shape,
+    status code, all other fields) is unchanged from FastAPI's default."""
+    errors = jsonable_encoder(exc.errors())
+    for error in errors:
+        if _validation_error_leaks_password(error):
+            error["input"] = "<redacted>"
+    return JSONResponse(status_code=422, content={"detail": errors})
+
 
 _DEFAULT_RATE_LIMIT_PER_MINUTE = 30
 _rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
@@ -90,6 +132,20 @@ class AnswerRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class CreateOperatorRequest(BaseModel):
+    username: str
+    password: str
+
+
+class OperatorPasswordRequest(BaseModel):
+    username: str
+    new_password: str
+
+
+class OperatorDeleteRequest(BaseModel):
+    username: str
 
 
 class OpportunityOut(BaseModel):
@@ -1116,3 +1172,140 @@ def logout(request: Request, authorization: str | None = Header(default=None)) -
         return {"status": "logged out"}
     finally:
         repo.close()
+
+
+@app.get("/auth/operators")
+def get_operators(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        # list_operators() already returns only username/created_at — never
+        # password_hash (get_operator() does return that, and must never be
+        # surfaced here; see docs/FEATURE-SPEC-dashboard-and-users.md Part A).
+        return repo.list_operators()
+    finally:
+        repo.close()
+
+
+@app.post("/auth/operators")
+def create_operator(
+    body: CreateOperatorRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+
+    # Password length validated in-handler, not via a Pydantic field_validator
+    # — a 422 body echoes the invalid field's raw `input`, which would leak
+    # the submitted password (G7 in docs/FEATURE-SPEC-dashboard-and-users.md).
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username must not be blank")
+    if len(body.password) < _MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"password must be at least {_MIN_PASSWORD_LENGTH} characters",
+        )
+
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        repo.create_operator(username, body.password)
+    except DuplicateOperatorError:
+        raise HTTPException(status_code=409, detail="operator username already exists")
+    finally:
+        repo.close()
+    return {"username": username, "status": "created"}
+
+
+@app.post("/auth/operators/password")
+def set_operator_password(
+    body: OperatorPasswordRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+
+    # Same in-handler validation as create_operator — never via a Pydantic
+    # field_validator (G7). No current-password check on this path, even for
+    # a self password change (D8): a flat privilege model where any operator
+    # can already reset any other operator's password without knowing it
+    # gains nothing from gating only the self path behind one.
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username must not be blank")
+    if len(body.new_password) < _MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"password must be at least {_MIN_PASSWORD_LENGTH} characters",
+        )
+
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        # set_password() already revokes all of the target operator's
+        # existing tokens (including the caller's own, on a self change) —
+        # see auth/repository.py.
+        repo.set_password(username, body.new_password)
+    except OperatorNotFoundError:
+        raise HTTPException(status_code=404, detail="not found")
+    finally:
+        repo.close()
+    return {"username": username, "status": "password updated"}
+
+
+@app.post("/auth/operators/delete")
+def delete_operator(
+    body: OperatorDeleteRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    operator = _authenticate(authorization, db_path)
+
+    # Self-delete ban checked BEFORE any DB write (and before opening any
+    # repo) — mirrors delete_business/delete_session's confirm-id mismatch
+    # ordering. This structurally guarantees the operator count can never
+    # reach zero through the web (D6 in
+    # docs/FEATURE-SPEC-dashboard-and-users.md); any operator can still
+    # delete or password-reset any *other* operator (flagged risk, D6).
+    username = body.username.strip()
+    if username == operator["username"]:
+        raise HTTPException(status_code=409, detail="cannot delete your own account")
+
+    _migrate(db_path)
+    repo = AuthRepository(db_path)
+    try:
+        repo.delete_operator(username)
+    except OperatorNotFoundError:
+        raise HTTPException(status_code=404, detail="not found")
+    finally:
+        repo.close()
+    return {"username": username, "status": "deleted"}
