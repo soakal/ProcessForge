@@ -780,6 +780,16 @@ def get_interview_transcript(
         repo.close()
 
 
+# --- Public lead intake (docs/FEATURE-SPEC-public-lead-intake.md, Item 3) ---
+@app.get("/public/intake")
+def ui_public_intake(request: Request):
+    # No auth required — this IS the public page (mirrors ui_login's
+    # comment style: unauthenticated by design, not a missing check).
+    # public_intake.html is fully self-contained (D8): no base.html, no
+    # app.js/app.css, no link back to any /ui route.
+    return templates.TemplateResponse(request, "public_intake.html")
+
+
 # --- Public lead intake (docs/FEATURE-SPEC-public-lead-intake.md, Item 1) ---
 @app.post("/public/intake")
 def start_public_intake(

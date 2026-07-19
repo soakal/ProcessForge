@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Tell Us About Your Process — ProcessForge</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    body {
+      margin: 0;
+      padding: 2rem 1rem;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f7f7f8;
+      color: #1a1a1a;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-top: 0;
+    }
+    .page-intro {
+      color: #333;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-top: 1rem;
+      margin-bottom: 0.25rem;
+    }
+    input[type="text"],
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.6rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    textarea {
+      min-height: 6rem;
+      resize: vertical;
+    }
+    .hp-field {
+      position: absolute;
+      left: -9999px;
+      top: -9999px;
+    }
+    button {
+      margin-top: 1.25rem;
+      padding: 0.7rem 1.25rem;
+      font-size: 1rem;
+      min-height: 44px;
+      background: #1a5fb4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .error-message {
+      color: #b3261e;
+      margin-top: 0.75rem;
+      min-height: 1.25em;
+    }
+    #intake-question {
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    #intake-thankyou {
+      display: none;
+    }
+    footer {
+      max-width: 640px;
+      margin: 1.5rem auto 0;
+      text-align: center;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    @media (max-width: 640px) {
+      body {
+        padding: 1rem 0.5rem;
+      }
+      main {
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Tell Us About a Process You'd Like Automated</h1>
+    <p class="page-intro">Tell us about a manual process you'd like automated — takes about 5 minutes.</p>
+
+    <section id="intake-step1">
+      <p class="next-step">Next step: fill in your name and contact info, then select "Get Started".</p>
+      <form id="intake-start-form">
+        <div>
+          <label for="business_name">Business Name</label>
+          <input type="text" id="business_name" name="business_name" autocomplete="organization" required>
+        </div>
+        <div>
+          <label for="contact">Your Name and Best Way to Reach You (email or phone)</label>
+          <input type="text" id="contact" name="contact" autocomplete="name" required>
+        </div>
+        <div class="hp-field">
+          <label for="website">Website</label>
+          <input type="text" id="website" name="website" autocomplete="off" tabindex="-1">
+        </div>
+        <div id="intake-start-error" class="error-message"></div>
+        <button type="submit" id="intake-start-button">Get Started</button>
+      </form>
+    </section>
+
+    <section id="intake-qa" style="display:none;">
+      <p class="next-step">Next step: read the question below, type your answer, then select "Submit Answer".</p>
+      <p id="intake-question"></p>
+      <form id="intake-answer-form">
+        <div>
+          <label for="answer">Your Answer</label>
+          <textarea id="answer" name="answer" maxlength="4000" required></textarea>
+        </div>
+        <div id="intake-answer-error" class="error-message"></div>
+        <button type="submit" id="intake-answer-button">Submit Answer</button>
+      </form>
+    </section>
+
+    <section id="intake-thankyou">
+      <p id="intake-thankyou-message"></p>
+    </section>
+  </main>
+  <footer>Powered by CwiAI</footer>
+  <script>
+    let sessionId = null;
+
+    const step1Section = document.getElementById("intake-step1");
+    const qaSection = document.getElementById("intake-qa");
+    const thankyouSection = document.getElementById("intake-thankyou");
+    const startForm = document.getElementById("intake-start-form");
+    const startButton = document.getElementById("intake-start-button");
+    const startError = document.getElementById("intake-start-error");
+    const answerForm = document.getElementById("intake-answer-form");
+    const answerButton = document.getElementById("intake-answer-button");
+    const answerError = document.getElementById("intake-answer-error");
+    const questionEl = document.getElementById("intake-question");
+
+    function genericErrorFor(response) {
+      if (response && response.status === 429) {
+        return "We're receiving a lot of interest right now — please try again later.";
+      }
+      return "Something went wrong. Please try again.";
+    }
+
+    startForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      startError.textContent = "";
+      startButton.disabled = true;
+
+      const body = {
+        business_name: document.getElementById("business_name").value,
+        contact: document.getElementById("contact").value,
+        website: document.getElementById("website").value,
+      };
+
+      let response;
+      try {
+        response = await fetch("/public/intake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        startError.textContent = "Could not reach the server. Please try again.";
+        startButton.disabled = false;
+        return;
+      }
+
+      if (!response.ok) {
+        startError.textContent = genericErrorFor(response);
+        startButton.disabled = false;
+        return;
+      }
+
+      const data = await response.json();
+      sessionId = data.session_id;
+      questionEl.textContent = data.question;
+
+      step1Section.style.display = "none";
+      qaSection.style.display = "block";
+      startButton.disabled = false;
+    });
+
+    answerForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      answerError.textContent = "";
+      answerButton.disabled = true;
+
+      const answerInput = document.getElementById("answer");
+      const answer = answerInput.value;
+
+      let response;
+      try {
+        response = await fetch("/public/intake/" + sessionId + "/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answer }),
+        });
+      } catch (err) {
+        answerError.textContent = "Could not reach the server. Please try again.";
+        answerButton.disabled = false;
+        return;
+      }
+
+      if (!response.ok) {
+        answerError.textContent = genericErrorFor(response);
+        answerButton.disabled = false;
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.status === "complete") {
+        qaSection.style.display = "none";
+        thankyouSection.style.display = "block";
+        document.getElementById("intake-thankyou-message").textContent = data.message;
+        return;
+      }
+
+      questionEl.textContent = data.question;
+      answerInput.value = "";
+      answerButton.disabled = false;
+    });
+  </script>
+</body>
+</html>
