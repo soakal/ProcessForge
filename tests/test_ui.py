@@ -3,6 +3,8 @@ these, since the login page and its assets must be reachable before a token
 exists."""
 from __future__ import annotations
 
+import re
+
 from fastapi.testclient import TestClient
 
 
@@ -31,6 +33,28 @@ def test_ui_static_css_served():
     response = client.get("/ui/static/app.css")
     assert response.status_code == 200
     assert "css" in response.headers["content-type"]
+
+
+def test_ui_static_css_mobile_friendly_foundation():
+    # Item 1 of docs/FEATURE-SPEC-mobile-friendly.md: nav wrap/spacing, touch
+    # targets, and textarea styling. The repo's single breakpoint convention
+    # is @media (max-width: 640px) — asserted here so no other breakpoint
+    # value can silently slip into an @media rule later.
+    client = _client()
+    response = client.get("/ui/static/app.css")
+    assert response.status_code == 200
+    css = response.text
+    assert "(max-width: 640px)" in css
+    media_queries = re.findall(r"@media\s*\(([^)]*)\)", css)
+    assert media_queries, "expected at least one @media rule"
+    assert all(query.strip() == "max-width: 640px" for query in media_queries)
+    nav_rule = re.search(r"\.nav\s*\{[^}]*\}", css)
+    assert nav_rule is not None
+    assert "flex-wrap: wrap" in nav_rule.group(0)
+    assert "min-height: 44px" in css
+    textarea_rule = re.search(r"textarea\s*\{[^}]*\}", css)
+    assert textarea_rule is not None
+    assert "font-size: 1rem" in textarea_rule.group(0)
 
 
 def test_ui_static_js_served():
