@@ -1963,6 +1963,43 @@ def test_get_interview_transcript_wrong_tenant_returns_404(monkeypatch, tmp_path
     assert response.status_code == 404
 
 
+def test_get_interview_transcript_interrupted_session_ends_with_question_turn(monkeypatch, tmp_path):
+    """Item 14 (Resume): a session left mid-interview (closed tab, browser
+    crash, etc.) never reaches the completion path in answer_interview, so it
+    stays status=="active" with its transcript ending on the question turn the
+    user never got to answer — exactly the turn businesses.html's Resume
+    action must find via GET /interviews/{sid}/transcript to rehydrate
+    pf_interview_state and let the user pick back up."""
+    _set_env(monkeypatch, tmp_path, rate_limit=100)
+    db_path = os.environ["PROCESSFORGE_DB_PATH"]
+    client = _client()
+    token = _login_token(client, db_path)
+
+    started = _start_interview(client, token, tenant="acme")
+    session_id = started["session_id"]
+    _answer_interview(
+        client, session_id, "We manually reconcile invoices every week.", token, tenant="acme"
+    )
+
+    repo = KBRepository(db_path)
+    try:
+        session_row = repo.get("sessions", session_id, "acme")
+    finally:
+        repo.close()
+    assert session_row["status"] == "active"
+
+    response = client.get(
+        f"/interviews/{session_id}/transcript",
+        params={"tenant": "acme"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    turns = response.json()
+    assert turns
+    assert turns[-1]["role"] == "question"
+
+
 def test_start_interview_missing_token_rejected(monkeypatch, tmp_path):
     _set_env(monkeypatch, tmp_path, rate_limit=100)
     client = _client()

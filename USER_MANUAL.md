@@ -559,6 +559,15 @@ everything that came out of it), right there on the page, without leaving
 `/ui/businesses`. See "Permanently deleting a single session" below for what
 exactly gets removed.
 
+Any session still shown as "active" (in progress, not yet finished) also
+gets a "Resume" button. If someone closed the tab or lost their connection
+partway through an interview, before this there was no way back into it from
+the website. Selecting "Resume" picks up the last question that was asked
+but never answered, and sends you straight back to the interview page with
+that question showing, ready to keep answering right where it left off. If
+the session somehow has no question to resume from, the page shows an error
+right there in the Sessions list instead of sending you anywhere.
+
 ---
 
 ## Seeing who approved what (the audit log) — command-line way

@@ -240,6 +240,19 @@ def test_ui_businesses_renders_form():
     # carrying business_id/tenant as encoded query params.
     assert '"/ui/businesses/delete?business_id=" +' in response.text
     assert '"&tenant=" +' in response.text
+    # Item 14: Resume an active interview — only rendered for
+    # status==="active" sessions, fetches the transcript, picks the last
+    # question turn, writes pf_interview_state, and navigates to
+    # /ui/interview. No question turn found -> per-row error, no navigation.
+    assert 'session.status === "active"' in response.text
+    assert (
+        '"/interviews/" + encodeURIComponent(session.id) + "/transcript?tenant=" + encodeURIComponent(tenant)'
+        in response.text
+    )
+    assert 'turn.role === "question"' in response.text
+    assert "This interview has no question to resume from." in response.text
+    assert "pf_interview_state" in response.text
+    assert 'window.location.href = "/ui/interview";' in response.text
 
 
 def test_ui_businesses_delete_renders_form():

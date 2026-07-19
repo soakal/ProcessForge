@@ -482,8 +482,16 @@ business row also gets a "Delete" link to
 `businesses_delete.html` now prefills `business_id`/`tenant` from
 `URLSearchParams` on load — `confirm_business_id` is deliberately never
 prefilled, so the operator must still type it manually as the destructive
-confirmation step (Part D judgment call #5)) are done; see that doc for the
-remaining items.
+confirmation step (Part D judgment call #5)), and Item 14 (UI: each session
+row on `/ui/businesses` with `status==="active"` now also gets a "Resume"
+button — it fetches `GET /interviews/{session_id}/transcript?tenant=`, takes
+the last `role==="question"` turn, writes `sessionStorage.pf_interview_state
+= {session_id, tenant, question}` (matches `interview.html`'s existing guard
+shape; `business_id` is optional there), and navigates to `/ui/interview`; no
+question turn found → a per-row error, no navigation. Closes the orphaned
+in-progress-interview gap left by a closed tab or lost connection. Locked in
+by an API-level test asserting an interrupted active interview's transcript
+ends with a question turn) are done; see that doc for the remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

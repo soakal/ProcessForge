@@ -75,6 +75,57 @@
         item.appendChild(recommendationLink);
       });
 
+      // Item 14: Resume an active interview. A closed tab today permanently
+      // orphans an in-progress interview — this rehydrates
+      // pf_interview_state from the transcript's last question turn (matches
+      // interview.html's guard shape; business_id is optional there) and
+      // sends the user back into /ui/interview to keep answering.
+      if (session.status === "active") {
+        const resumeError = document.createElement("div");
+        resumeError.className = "error-message";
+        item.appendChild(resumeError);
+
+        const resumeButton = document.createElement("button");
+        resumeButton.type = "button";
+        resumeButton.textContent = "Resume";
+        item.appendChild(resumeButton);
+
+        resumeButton.addEventListener("click", async () => {
+          resumeError.textContent = "";
+
+          let transcriptResponse;
+          try {
+            transcriptResponse = await fetchWithAuth(
+              "/interviews/" + encodeURIComponent(session.id) + "/transcript?tenant=" + encodeURIComponent(tenant)
+            );
+          } catch (err) {
+            resumeError.textContent = "Could not reach the server. Please try again.";
+            return;
+          }
+
+          if (!transcriptResponse.ok) {
+            resumeError.textContent = "Could not load the transcript. Please try again.";
+            return;
+          }
+
+          const turns = await transcriptResponse.json();
+          const questionTurns = turns.filter((turn) => turn.role === "question");
+          const lastQuestion = questionTurns[questionTurns.length - 1];
+
+          if (!lastQuestion) {
+            resumeError.textContent = "This interview has no question to resume from.";
+            return;
+          }
+
+          sessionStorage.setItem("pf_interview_state", JSON.stringify({
+            session_id: session.id,
+            tenant: tenant,
+            question: lastQuestion.content,
+          }));
+          window.location.href = "/ui/interview";
+        });
+      }
+
       // Item 13a: per-session inline delete. Destructive, so — unlike
       // Rename — this gets a type-the-ID confirm input with a strict
       // client-side guard before the fetch fires, mirroring
