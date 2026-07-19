@@ -296,6 +296,58 @@
       renameBox.appendChild(renameCancelButton);
       actionsCell.appendChild(renameBox);
 
+      // Item 3 of docs/FEATURE-SPEC-existing-business-interviews.md: start a
+      // brand-new session against this existing business (no new Business
+      // row) instead of the dashboard's create-a-new-business flow. Mirrors
+      // the rename handler's 401/404/generic error-mapping shape.
+      const newInterviewButton = document.createElement("button");
+      newInterviewButton.type = "button";
+      newInterviewButton.textContent = "New Interview";
+      actionsCell.appendChild(newInterviewButton);
+
+      const newInterviewError = document.createElement("div");
+      newInterviewError.className = "error-message";
+      actionsCell.appendChild(newInterviewError);
+
+      newInterviewButton.addEventListener("click", async () => {
+        newInterviewError.textContent = "";
+
+        let newInterviewResponse;
+        try {
+          newInterviewResponse = await fetchWithAuth(
+            "/businesses/" + encodeURIComponent(business.id) + "/interviews?tenant=" + encodeURIComponent(tenant),
+            { method: "POST" }
+          );
+        } catch (err) {
+          newInterviewError.textContent = "Could not reach the server. Please try again.";
+          return;
+        }
+
+        if (newInterviewResponse.status === 401) {
+          newInterviewError.textContent = "You are not authorized to start an interview.";
+          return;
+        }
+
+        if (newInterviewResponse.status === 404) {
+          newInterviewError.textContent = "Business not found.";
+          return;
+        }
+
+        if (!newInterviewResponse.ok) {
+          newInterviewError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        const data = await newInterviewResponse.json();
+        sessionStorage.setItem("pf_interview_state", JSON.stringify({
+          session_id: data.session_id,
+          business_id: data.business_id,
+          tenant: tenant,
+          question: data.question,
+        }));
+        window.location.href = "/ui/interview";
+      });
+
       let renaming = false;
 
       renameButton.addEventListener("click", () => {

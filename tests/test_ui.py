@@ -376,6 +376,20 @@ def test_ui_businesses_renders_form():
     assert 'idCell.dataset.label = "ID"' in response.text
     assert 'countCell.dataset.label = "Sessions"' in response.text
     assert 'actionsCell.dataset.label = "Actions"' in response.text
+    # Item 3 of docs/FEATURE-SPEC-existing-business-interviews.md: per-row
+    # "New Interview" action starts a new session on an existing business —
+    # POST .../interviews?tenant=, 401/404/generic error mapping mirroring
+    # the rename handler, then the same pf_interview_state shape the
+    # dashboard writes and the /ui/interview handoff.
+    assert "New Interview" in response.text
+    assert (
+        '"/businesses/" + encodeURIComponent(business.id) + "/interviews?tenant=" + encodeURIComponent(tenant)'
+        in response.text
+    )
+    assert "You are not authorized to start an interview." in response.text
+    assert "session_id: data.session_id," in response.text
+    assert "business_id: data.business_id," in response.text
+    assert "question: data.question," in response.text
 
 
 def test_ui_businesses_delete_renders_form():
