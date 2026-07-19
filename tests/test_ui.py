@@ -18,6 +18,9 @@ def test_ui_login_renders_form():
     client = _client()
     response = client.get("/ui/login")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert "username" in response.text
     assert "password" in response.text
     # Plain-language intro/next-step copy: locks in that the page states what
@@ -67,6 +70,9 @@ def test_ui_dashboard_renders_form():
     client = _client()
     response = client.get("/ui")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert "business_name" in response.text
     assert "tenant" in response.text
     # Plain-language intro/next-step copy: locks in that the page states what
@@ -97,6 +103,9 @@ def test_ui_interview_renders_page():
     client = _client()
     response = client.get("/ui/interview")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     # TestClient's GET carries no browser sessionStorage, so the JS-driven
     # question/answer flow never runs here — this only confirms the page
     # structure (including the "no interview in progress" fallback text
@@ -115,6 +124,9 @@ def test_ui_recommendation_renders_page():
     client = _client()
     response = client.get("/ui/recommendations/some-fake-id")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     # TestClient's GET never executes the inline fetch-on-load script against
     # a real backend recommendation, so this only confirms the static page
     # structure (including the Approve/Build controls and the recommendation
@@ -140,6 +152,9 @@ def test_ui_interview_transcript_renders_page():
     client = _client()
     response = client.get("/ui/interview/some-fake-id/transcript")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     # TestClient's GET never executes the inline fetch-on-load script against
     # a real backend transcript, so this only confirms the static page
     # structure is present: the session id embedded for the client-side
@@ -218,6 +233,9 @@ def test_ui_audit_log_renders_form():
     client = _client()
     response = client.get("/ui/audit-log")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert "tenant" in response.text
     assert "record_id" in response.text
     assert "Search" in response.text
@@ -233,6 +251,9 @@ def test_ui_businesses_renders_form():
     client = _client()
     response = client.get("/ui/businesses")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert "tenant" in response.text
     assert "Load" in response.text
     # Plain-language intro/next-step copy: locks in that the page states what
@@ -299,6 +320,9 @@ def test_ui_businesses_delete_renders_form():
     client = _client()
     response = client.get("/ui/businesses/delete")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert "confirm" in response.text.lower()
     assert "cannot be undone" in response.text.lower()
     # Plain-language intro/next-step copy: the next-step line on this
@@ -323,6 +347,9 @@ def test_ui_operators_renders_form():
     client = _client()
     response = client.get("/ui/operators")
     assert response.status_code == 200
+    # Item 2 of docs/FEATURE-SPEC-mobile-friendly.md: locks in the viewport
+    # meta so a future refactor can't silently drop it.
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     # Plain-language intro/next-step copy: locks in that the page states what
     # it's for and what to do next, so a future edit can't silently drop it.
     assert 'class="page-intro"' in response.text
