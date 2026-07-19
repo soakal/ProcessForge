@@ -190,11 +190,23 @@ These are optional and personal to this machine (see `desktop/README.md` for
 why they aren't redistributable) — the CLI commands above remain the
 documented, always-available way to do the same things.
 
+### Already running: the always-on server (recommended day to day)
+
+You don't need to start ProcessForge yourself anymore. It also runs
+continuously on its own always-on server, reachable from any device on your
+Tailscale network — no PC to leave on, no command window to keep open. It
+starts itself automatically on boot and restarts itself if it ever crashes.
+Reach it at `http://100.102.226.75:8010/ui/login` (Tailscale must be
+installed and signed in on whatever device you're using — phone, laptop,
+etc.). Steps 1-5 above are still the documented way to run a second, local
+copy for development/testing.
+
 ---
 
 ## Using the website (the easy way)
 
-**Open a web browser and go to `http://127.0.0.1:8010/ui/login`.** This is the
+**Open a web browser and go to the always-on server's login page above, or
+`http://127.0.0.1:8010/ui/login` for a locally-running copy.** This is the
 easiest way to use ProcessForge — everything described in this manual (starting a
 conversation, approving a recommendation, building an automation, checking the
 audit log, viewing or deleting a business, managing operator accounts) has a page

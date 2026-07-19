@@ -580,6 +580,47 @@ polish, not blockers to using the product):
 - Anything from spec §11's explicitly-out-of-scope list (voice, real
   automation execution against live systems, field-level encryption).
 
+## Deployment
+
+**A second, always-on copy now runs on Proxmox LXC 202** (hostname
+`processforge`, Debian 12, `192.168.1.57`, Tailscale `100.102.226.75`),
+separate from the local dev copy this repo's `run-tests.ps1`/`uvicorn`
+workflow targets. Provisioned directly via SSH from a Claude Code session (a
+dedicated `processforge-lxc-setup` ed25519 key was added to the Proxmox
+host's and the container's `authorized_keys` for this). Setup: `git clone` +
+`venv` + `pip install -r requirements.lock.txt` under `/opt/ProcessForge`,
+Alembic migrations run against `PROCESSFORGE_DB_PATH=/var/lib/processforge/processforge.db`
+(deliberately outside the repo tree, per this file's own §9 guidance), config
+in `/etc/processforge.env` (mode 600, loaded via `systemd`'s
+`EnvironmentFile=`, NOT committed anywhere), served by a `processforge.service`
+systemd unit (`enable`d, `Restart=on-failure`) bound to `0.0.0.0:8010`.
+Tailscale is installed and signed into the same tailnet as Brian's other
+devices, so the container is reachable remotely with no port-forwarding.
+Operator accounts are created the same way as local (`python -m auth.users
+create`, or directly via `AuthRepository.create_operator` when a TTY isn't
+available for `getpass` — e.g. over a non-interactive SSH heredoc).
+
+**This GitHub repo (`soakal/ProcessForge`) is PUBLIC** — confirmed via an
+unauthenticated `git ls-remote` succeeding. At deploy time the local `master`
+branch was found to be 106 commits ahead of `origin/master` (the real
+auth/LLM/UI build had never been pushed); the full unpushed diff was scanned
+for hardcoded secrets before pushing (only fake test fixtures like
+`"correct-horse-battery"` were found) — this is now a public repo like
+`soakal/Nexus`, so [[feedback-public-repo-infra]] applies: never let Proxmox
+host details, container IDs, Tailscale IPs, or other infra specifics land in
+a committed file here.
+
+**LLM provider is live and verified end-to-end on the deployed copy**:
+`PROCESSFORGE_LLM_PROVIDER=openrouter`, tiers currently
+`EXTRACT=anthropic/claude-haiku-4.5`, `REASON=anthropic/claude-sonnet-5`,
+`ARBITER=anthropic/claude-opus-4.8` (upgraded from `sonnet-4.5`/`opus-4.1`
+after checking OpenRouter's live pricing — `opus-4.8` is simultaneously
+cheaper, newer, and has a larger context window than `opus-4.1`, so this was
+a strict improvement, not a tradeoff). Confirmed via a real `POST
+/interviews/{id}/answer` call that the LLM-generated follow-up question
+genuinely reflected the submitted answer's specifics, not the deterministic
+fallback script.
+
 ## Build engine
 
 Built via an internal autonomous council-loop tool (Arbiter/Engineer/Realist roles), pointed at this repo as its target. ProcessForge does **not** reimplement council-iteration mechanics itself — no standalone `run-loop.ps1` batch engine here.
