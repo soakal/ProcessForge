@@ -505,6 +505,53 @@ def start_interview(
         repo.close()
 
 
+@app.post("/businesses/{business_id}/interviews")
+def start_business_interview(
+    business_id: str,
+    tenant: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Rate-limit before auth so failed-auth (e.g. token brute-force) requests
+    # count against the per-IP limit too, not just successful ones.
+    client_host = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_host)
+
+    db_path = os.environ.get("PROCESSFORGE_DB_PATH", "./kb/processforge.db")
+    _authenticate(authorization, db_path)
+    repo, ctx = _open_repo(db_path)
+    try:
+        business_row = repo.get("businesses", business_id, tenant)
+        if business_row is None:
+            # Same 404 for unknown id and wrong tenant — don't leak which. Must
+            # be resolved BEFORE any session/turn is written: turns are not
+            # tenant-scoped, so this check is the only thing preventing a
+            # cross-tenant interview from being started.
+            raise HTTPException(status_code=404, detail="not found")
+
+        sink = KBSink()
+        # transcript_ref points at the session's own id (turns are stored keyed
+        # by session_id via repo.add_turn/list_turns, not a separate blob).
+        session_id = str(uuid.uuid4())
+        session = Session(
+            id=session_id,
+            business_id=business_id,
+            status=SessionStatus.active,
+            transcript_ref=session_id,
+        )
+        sink.save(session, ctx)
+
+        repo.add_turn(session.id, "question", _INTERVIEW_OPENER)
+
+        return {
+            "business_id": business_id,
+            "session_id": session.id,
+            "question": _INTERVIEW_OPENER,
+        }
+    finally:
+        repo.close()
+
+
 @app.post("/interviews/{session_id}/answer")
 def answer_interview(
     session_id: str,
