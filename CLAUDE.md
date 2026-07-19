@@ -17,7 +17,11 @@ A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 /automations/{id}/feedback`, `GET /audit-log`, `POST /businesses/{id}/delete`,
 `POST /sessions/{id}/delete`,
 `POST /interviews`, `POST /interviews/{id}/answer`, `GET
-/interviews/{id}/transcript`).
+/interviews/{id}/transcript`, `GET /businesses`, `GET
+/businesses/{id}/sessions`, `POST /businesses/{id}/edit`, `GET
+/auth/operators`, `POST /auth/operators`, `POST /auth/operators/password`,
+`POST /auth/operators/delete`), plus `/ui/businesses` and `/ui/operators`
+among the `/ui` routes.
 All 6 pipeline stages are now reachable through
 the live API — `build` calls `stages/builder.py` (returns `409` via its
 `PermissionError` if the recommendation isn't `approved` yet, never a raw
@@ -440,8 +444,9 @@ it, and none of the existing element IDs, the confirm-match guard logic, or
 the `textContent`/`createElement` rendering were touched. `tests/test_ui.py`
 extends `test_ui_audit_log_renders_form`/`test_ui_businesses_delete_renders_form`
 with the same `.page-intro`/`.next-step` string assertions used for every
-other page. **Item 7's four-slice buildout is complete: all 7 `/ui` pages now
-carry the plain-language intro/next-step pattern.**
+other page. **Item 7's four-slice buildout is complete: every `/ui` page now
+carries the plain-language intro/next-step pattern (nine pages as of this
+writing).**
 
 **`docs/FEATURE-SPEC-dashboard-and-users.md` items are landing one per council
 cycle.** Item 1 (delete_business FK fix for interview-created businesses),
@@ -500,7 +505,29 @@ with no tenant remembered it shows plain hint text instead; a "Manage
 businesses" link to `/ui/businesses` is always present regardless. Starting
 an interview now also writes `pf_last_tenant` to `localStorage` (mirroring
 `/ui/businesses`'s Item 10 behavior), and every fetch error in this section
-is swallowed quietly — it must never block the start-interview form), and
+is swallowed quietly — it must never block the start-interview form),
+Item 17 (Backend: four operator-management endpoints under `/auth/`,
+matching where `/auth/login`/`/auth/logout` already live — `GET
+/auth/operators` (`repo.list_operators()`, never includes
+`password_hash`), `POST /auth/operators` (create; `409` on a duplicate
+username via `DuplicateOperatorError`), `POST /auth/operators/password`
+(reset; `404` via `OperatorNotFoundError`; no current-password field,
+D8), and `POST /auth/operators/delete` (`404` via
+`OperatorNotFoundError`). **Self-delete is forbidden:** target username
+`===` the authenticated operator's own username → `409` "cannot delete
+your own account", checked before any DB write or repo open — this
+structurally guarantees the operator count can never reach zero through
+the web (D6); any operator can still delete or reset any *other*
+operator (flagged risk, not an oversight, D6). **G7 applies here
+specifically:** both create and password-change validate the password's
+minimum length (`_MIN_PASSWORD_LENGTH`, imported from `auth.users`, one
+source of truth) inside the handler via `HTTPException(400, ...)`, never
+via a Pydantic `field_validator` on the password field — a `422`
+validation-error body echoes the invalid field's raw `input`, which
+would leak the submitted password back in the response. `set_password()`
+already revokes every one of the target operator's existing tokens
+(including the caller's own, on a self password change) — reused as-is,
+not reimplemented here), and
 Item 18 (UI: a new `GET /ui/operators` route + `web/templates/operators.html`,
 consuming Item 17's `/auth/operators*` endpoints — an operator table
 (username, created_at) sourced from `GET /auth/operators` and sorted

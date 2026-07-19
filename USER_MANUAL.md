@@ -197,9 +197,9 @@ documented, always-available way to do the same things.
 **Open a web browser and go to `http://127.0.0.1:8010/ui/login`.** This is the
 easiest way to use ProcessForge — everything described in this manual (starting a
 conversation, approving a recommendation, building an automation, checking the
-audit log, deleting a business) has a page for it. Log in with the username and
-password you created in step 4, and a menu at the top of every page takes you
-where you need to go.
+audit log, viewing or deleting a business, managing operator accounts) has a page
+for it. Log in with the username and password you created in step 4, and a menu
+at the top of every page takes you where you need to go.
 
 The rest of this manual also documents the command-line (`curl.exe`) way of doing
 the exact same things, one step at a time — useful if you want to script something,
@@ -210,22 +210,22 @@ everything. Keep reading if you want the command-line details, or skip ahead to
 
 **Every page on the website — the login page, the dashboard, the interview
 conversation page, the transcript page, the recommendation page, the audit
-log page, and the delete-a-business page — starts with a short line of plain
-text explaining what that page is for**, and a line telling you exactly what
-to do next (e.g. "enter your username and password, then select Log In"). On
-the recommendation page, that "what to do next" line changes depending on
-where the recommendation is in its journey — "review the ROI and summary,
-then select Approve" while it's a draft, "select Build to generate the
-automation" once it's approved, and "review the automation and submit
-feedback if changes are needed" once it's built. The recommendation page
-also now shows the recommendation's **estimated time savings (ROI)** and its
-status in bold, right at the top, so you don't have to hunt for them. On the
-delete-a-business page, that "what to do next" line is a caution rather than
-a plain instruction — "double-check the business ID before deleting — this
-action cannot be undone" — since this is the one page on the website that
-permanently destroys data. This effort to make every page on the website
-explain itself without needing this manual open is now complete across all
-seven pages.
+log page, the businesses page, the delete-a-business page, and the operators
+page — starts with a short line of plain text explaining what that page is
+for**, and a line telling you exactly what to do next (e.g. "enter your
+username and password, then select Log In"). On the recommendation page,
+that "what to do next" line changes depending on where the recommendation is
+in its journey — "review the ROI and summary, then select Approve" while
+it's a draft, "select Build to generate the automation" once it's approved,
+and "review the automation and submit feedback if changes are needed" once
+it's built. The recommendation page also now shows the recommendation's
+**estimated time savings (ROI)** and its status in bold, right at the top,
+so you don't have to hunt for them. On the delete-a-business page, that
+"what to do next" line is a caution rather than a plain instruction —
+"double-check the business ID before deleting — this action cannot be
+undone" — since this is the one page on the website that permanently
+destroys data. This effort to make every page on the website explain itself
+without needing this manual open is now complete across all nine pages.
 
 ---
 
