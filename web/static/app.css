@@ -160,6 +160,25 @@ th {
   font-weight: 600;
 }
 
+/* Item 3 of docs/FEATURE-SPEC-mobile-friendly.md: the 7-column forensic
+   audit-log table gets its own horizontal-scroll wrapper so the page body
+   itself never pans sideways at narrow viewport widths — the table scrolls
+   inside its container instead. Global (not inside the mobile @media block)
+   since the scroll behavior applies at any width the table overflows. */
+#audit-log-results {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#audit-log-results table {
+  min-width: 640px;
+}
+
+#audit-log-results th,
+#audit-log-results td {
+  white-space: nowrap;
+}
+
 /* Mobile breakpoint — the repo's single responsive convention: every
    @media rule in this file uses exactly (max-width: 640px), so touch/layout
    adjustments live here and nowhere else. */

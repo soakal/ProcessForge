@@ -60,6 +60,18 @@ def test_ui_static_css_mobile_friendly_foundation():
     assert "font-size: 1rem" in textarea_rule.group(0)
 
 
+def test_ui_static_css_audit_log_horizontal_scroll():
+    # Item 3 of docs/FEATURE-SPEC-mobile-friendly.md: the 7-column forensic
+    # audit-log table gets an in-container horizontal-scroll wrapper so the
+    # page body itself never pans sideways at narrow viewport widths.
+    client = _client()
+    response = client.get("/ui/static/app.css")
+    assert response.status_code == 200
+    css = response.text
+    assert "#audit-log-results" in css
+    assert "overflow-x: auto" in css
+
+
 def test_ui_static_js_served():
     client = _client()
     response = client.get("/ui/static/app.js")
