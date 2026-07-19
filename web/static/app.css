@@ -231,7 +231,8 @@ th {
     color: #555;
   }
 
-  table.stacked td input[type="text"] {
+  table.stacked td input[type="text"],
+  table.stacked td input[type="password"] {
     width: 100%;
   }
 }

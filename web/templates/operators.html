@@ -55,6 +55,7 @@
     }
 
     const table = document.createElement("table");
+    table.className = "stacked";
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     ["Username", "Created", "Actions"].forEach((label) => {
@@ -72,13 +73,16 @@
 
       const usernameCell = document.createElement("td");
       usernameCell.textContent = operator.username;
+      usernameCell.dataset.label = "Username";
       row.appendChild(usernameCell);
 
       const createdCell = document.createElement("td");
       createdCell.textContent = operator.created_at;
+      createdCell.dataset.label = "Created";
       row.appendChild(createdCell);
 
       const actionsCell = document.createElement("td");
+      actionsCell.dataset.label = "Actions";
 
       // Reset Password — every row, including the caller's own (D9 handles
       // the self case below).

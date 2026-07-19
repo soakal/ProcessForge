@@ -85,6 +85,11 @@ def test_ui_static_css_businesses_stacked_table():
     mobile_block = media_match.group(1)
     assert "table.stacked" in mobile_block
     assert "content: attr(data-label)" in mobile_block
+    # Item 5 of docs/FEATURE-SPEC-mobile-friendly.md: the operators table
+    # reuses the same table.stacked rules, extended to cover password inputs
+    # (the businesses table only ever has text inputs) rather than
+    # duplicating a second breakpoint/selector set.
+    assert 'table.stacked td input[type="password"]' in mobile_block
 
 
 def test_ui_static_js_served():
@@ -437,3 +442,11 @@ def test_ui_operators_renders_form():
     assert 'localStorage.removeItem("pf_token");' in response.text
     assert 'localStorage.removeItem("pf_username");' in response.text
     assert 'window.location.href = "/ui/login";' in response.text
+    # Item 5 of docs/FEATURE-SPEC-mobile-friendly.md: card-stacking the
+    # operators table for <=640px viewports — dataset.label on each td plus
+    # table.className = "stacked", reusing Item 4's shared table.stacked
+    # rules (attribute-only, innerHTML stays absent, asserted above).
+    assert 'table.className = "stacked"' in response.text
+    assert 'usernameCell.dataset.label = "Username"' in response.text
+    assert 'createdCell.dataset.label = "Created"' in response.text
+    assert 'actionsCell.dataset.label = "Actions"' in response.text
