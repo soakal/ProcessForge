@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Businesses</h1>
 <p class="page-intro">This page lists the businesses recorded for a tenant, so you can see each one's name and how many interview sessions it has.</p>
-<p class="next-step">Next step: enter a tenant below, then select "Load".</p>
+<p class="next-step">Next step: your last tenant's businesses load automatically — or enter a different tenant and select "Load".</p>
 <form id="businesses-form">
   <div>
     <label for="tenant">Tenant</label>
@@ -28,6 +28,9 @@
   const lastTenant = localStorage.getItem("pf_last_tenant");
   if (lastTenant) {
     tenantInput.value = lastTenant;
+  }
+  if (lastTenant) {
+    loadBusinesses(lastTenant);
   }
 
   // Renders the sessions expansion for one business into `container`
@@ -413,12 +416,14 @@
     resultsBox.appendChild(table);
   }
 
-  document.getElementById("businesses-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
+  // Item 1: shared fetch/render/error path used by both the submit
+  // listener and the tenant-guarded on-load call above — errors surface
+  // in #businesses-error either way (D1: unlike the dashboard's quiet
+  // swallow, this page's list IS the page).
+  async function loadBusinesses(tenant) {
     errorBox.textContent = "";
     resultsBox.textContent = "";
 
-    const tenant = tenantInput.value;
     localStorage.setItem("pf_last_tenant", tenant);
 
     let response;
@@ -441,6 +446,11 @@
 
     const businesses = await response.json();
     renderResults(businesses, tenant);
+  }
+
+  document.getElementById("businesses-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    loadBusinesses(tenantInput.value);
   });
 </script>
 {% endblock %}

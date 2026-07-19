@@ -309,7 +309,12 @@ def test_ui_businesses_renders_form():
     assert 'class="page-intro"' in response.text
     assert "how many interview sessions it has" in response.text
     assert 'class="next-step"' in response.text
-    assert 'enter a tenant below' in response.text
+    assert "your last tenant's businesses load automatically" in response.text
+    # Item 1: auto-load on page load when a tenant is remembered — one
+    # shared fetch/render/error path (loadBusinesses) called from both the
+    # submit listener and a tenant-guarded on-load invocation (D1/D2).
+    assert "function loadBusinesses" in response.text
+    assert "if (lastTenant) {\n    loadBusinesses(lastTenant);\n  }" in response.text
     # Shared client-side auth/fetch helpers and the tenant-persistence key
     # this page introduces.
     assert "requireAuth" in response.text
