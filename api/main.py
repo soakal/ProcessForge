@@ -95,6 +95,12 @@ async def _redact_password_validation_errors(
 
 _DEFAULT_RATE_LIMIT_PER_MINUTE = 30
 _rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
+# Separate bucket dict for /public routes (see _check_public_rate_limit) —
+# its keys are the same (client_host, window) shape as _rate_limit_buckets's,
+# but the two dicts are distinct objects, so a public flood and operator
+# traffic from the same host can never share, exhaust, or reset each other's
+# window count (G5).
+_public_rate_limit_buckets: dict[tuple[str, int], int] = defaultdict(int)
 # A real, correctly-formatted (but unusable) password hash. Verified against on
 # every /auth/login call for an unknown username so that a real PBKDF2
 # computation runs either way — this blunts a timing side-channel that could
@@ -112,6 +118,31 @@ _INTERVIEW_OPENER = (
 # turns. Overridable per-deployment via PROCESSFORGE_MAX_INTERVIEW_ANSWERS
 # (see _max_interview_answers()).
 _DEFAULT_MAX_INTERVIEW_ANSWERS = 12
+
+# --- Public lead intake (docs/FEATURE-SPEC-public-lead-intake.md) ---
+# Reserved, hardcoded tenant every /public submission lands under. No /public
+# request ever accepts or varies on a client-supplied tenant (G2) — this is
+# the sole tenant any /public handler ever reads or writes.
+_PUBLIC_TENANT = "public-leads"
+# Seeded as the first turn pair of every public session, before the opener
+# (D4) — asked on the start form itself, not through the answer ladder.
+_PUBLIC_CONTACT_QUESTION = (
+    "What is your name, and what is the best way to reach you (email or phone)?"
+)
+# Fixed completion message shown to the prospect (D7) — no ROI, recommendation,
+# or id is ever included.
+_PUBLIC_THANKS = (
+    "Thanks — we've received your submission and will be in touch soon."
+)
+# Default requests-per-client-IP-per-minute on /public routes, deliberately
+# tighter than _DEFAULT_RATE_LIMIT_PER_MINUTE and tracked in a disjoint bucket
+# keyspace (see _check_public_rate_limit / G5). Overridable via
+# PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE.
+_DEFAULT_PUBLIC_RATE_LIMIT_PER_MINUTE = 10
+# Default global daily cap on new public-lead submissions (D5c), DB-derived
+# (not an in-memory counter) so it is restart-proof. Overridable via
+# PROCESSFORGE_PUBLIC_MAX_LEADS_PER_DAY.
+_DEFAULT_PUBLIC_MAX_LEADS_PER_DAY = 20
 
 
 class SessionRequest(BaseModel):
@@ -291,6 +322,26 @@ class EditBusinessRequest(BaseModel):
         return stripped
 
 
+class PublicIntakeStartRequest(BaseModel):
+    """Body for POST /public/intake (Item 2, not wired this cycle). Bounds
+    and strip-and-require-nonblank validators mirror EditBusinessRequest.name
+    above. `website` is a hidden honeypot field (D6) — real submitters never
+    see or fill it; it carries no secret, so no 422-redaction concern like
+    the password fields above."""
+
+    business_name: str = Field(min_length=1, max_length=500)
+    contact: str = Field(min_length=1, max_length=500)
+    website: str = Field(default="", max_length=500)
+
+    @field_validator("business_name", "contact")
+    @classmethod
+    def _strip_and_require_nonblank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
 class SessionResponse(BaseModel):
     business_id: str
     session_id: str
@@ -318,6 +369,34 @@ def _check_rate_limit(client_host: str) -> None:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
+def _check_public_rate_limit(client_host: str) -> None:
+    """Same fixed-window-per-IP structure as _check_rate_limit (fresh env
+    read, defensive parse, stale-window pruning, 429) but reads
+    PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE and tracks its own bucket dict,
+    _public_rate_limit_buckets — a keyspace disjoint from
+    _rate_limit_buckets's, so operator and public traffic can never consume
+    each other's windows (G5). This must be the first statement in every
+    /public handler."""
+    raw_limit = os.environ.get("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "")
+    try:
+        limit = (
+            int(raw_limit) if raw_limit.strip() else _DEFAULT_PUBLIC_RATE_LIMIT_PER_MINUTE
+        )
+    except ValueError:
+        limit = _DEFAULT_PUBLIC_RATE_LIMIT_PER_MINUTE
+    if limit < 1:
+        limit = _DEFAULT_PUBLIC_RATE_LIMIT_PER_MINUTE
+    window = int(time.time() // 60)
+    for stale_key in [
+        k for k in _public_rate_limit_buckets if k[1] not in (window, window - 1)
+    ]:
+        del _public_rate_limit_buckets[stale_key]
+    key = (client_host, window)
+    _public_rate_limit_buckets[key] += 1
+    if _public_rate_limit_buckets[key] > limit:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
 def _max_interview_answers() -> int:
     """Read PROCESSFORGE_MAX_INTERVIEW_ANSWERS fresh on every call (same
     per-call-read convention as _check_rate_limit, so tests can monkeypatch
@@ -340,6 +419,20 @@ def _open_repo(db_path: str) -> tuple[KBRepository, _Ctx]:
     repo = KBRepository(db_path)
     ctx = _Ctx(repo, session_id="")
     return repo, ctx
+
+
+class _NoLLMCtx(_Ctx):
+    """A _Ctx whose complete() unconditionally raises, instead of reaching
+    llm.client.complete. This is what makes the public intake path's
+    zero-LLM-egress guarantee structural rather than configurational (D1/G3):
+    interviewer.run()'s LLM-first extraction (_extract_llm -> ctx.complete)
+    falls back to _extract_deterministic on ANY exception, so passing this
+    ctx into interviewer.run()/_finish_pipeline() forces that deterministic
+    fallback by construction — no /public code path can ever reach a real
+    provider call, on the deployed box or anywhere else."""
+
+    def complete(self, messages, tier):
+        raise RuntimeError("LLM calls are disabled on the public intake path")
 
 
 def _authenticate(authorization: str | None, db_path: str) -> dict:
