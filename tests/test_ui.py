@@ -293,3 +293,60 @@ def test_ui_businesses_delete_renders_form():
     assert 'document.getElementById("business_id").value = businessIdParam;' in response.text
     assert 'document.getElementById("tenant").value = tenantParam;' in response.text
     assert 'getElementById("confirm_business_id").value =' not in response.text
+
+
+def test_ui_operators_renders_form():
+    client = _client()
+    response = client.get("/ui/operators")
+    assert response.status_code == 200
+    # Plain-language intro/next-step copy: locks in that the page states what
+    # it's for and what to do next, so a future edit can't silently drop it.
+    assert 'class="page-intro"' in response.text
+    assert "add a new one, reset a password, or remove an operator" in response.text
+    assert 'class="next-step"' in response.text
+    assert "review the operators below" in response.text
+    # Shared client-side auth/fetch helpers, per Item 18's acceptance
+    # criteria.
+    assert "requireAuth" in response.text
+    assert "fetchWithAuth" in response.text
+    assert "innerHTML" not in response.text
+    # Item 19 (folded into this cycle): the nav gets a new Operators link
+    # alongside Businesses, mirroring Item 10's nav-link assertion.
+    assert '<a href="/ui/operators">Operators</a>' in response.text
+    # Operator table sourced from GET /auth/operators, sorted client-side.
+    assert '"/auth/operators"' in response.text
+    assert "localeCompare" in response.text
+    assert "No operators found." in response.text
+    # Add-operator form: username + password + confirm-password, with a
+    # strict client-side match guard that runs BEFORE any fetch call.
+    assert "new_username" in response.text
+    assert "new_password_confirm" in response.text
+    add_operator_guard = response.text.index("if (password !== confirmPassword)")
+    add_operator_fetch = response.text.index('fetchWithAuth("/auth/operators", {')
+    assert add_operator_guard < add_operator_fetch
+    assert "The passwords don't match." in response.text
+    # Both password fields are cleared after every add-operator submit,
+    # success or failure (G7 — passwords never echoed/retained).
+    assert 'passwordInput.value = "";' in response.text
+    assert 'confirmInput.value = "";' in response.text
+    # Per-row Reset Password: new + confirm fields, same strict match guard
+    # before its own fetch.
+    reset_guard = response.text.index("if (newPassword !== confirmPassword)")
+    reset_fetch = response.text.index('fetchWithAuth("/auth/operators/password"')
+    assert reset_guard < reset_fetch
+    # Per-row Delete: retype-username confirm, strict !== guard before its
+    # own fetch.
+    delete_guard = response.text.index("if (confirmInput.value !== operator.username)")
+    delete_fetch = response.text.index('fetchWithAuth("/auth/operators/delete"')
+    assert delete_guard < delete_fetch
+    assert "The confirmation doesn't match the username." in response.text
+    # Own-row Delete control is suppressed entirely (UX only — the server
+    # still enforces the self-delete 409 regardless, D6).
+    assert "const isSelf = operator.username === currentUsername;" in response.text
+    assert "if (!isSelf) {" in response.text
+    # Self password change: clears pf_token/pf_username and redirects to
+    # /ui/login (D9), with a pre-submit warning note.
+    assert "changing your own password signs you out" in response.text
+    assert 'localStorage.removeItem("pf_token");' in response.text
+    assert 'localStorage.removeItem("pf_username");' in response.text
+    assert 'window.location.href = "/ui/login";' in response.text

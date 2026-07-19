@@ -500,7 +500,23 @@ with no tenant remembered it shows plain hint text instead; a "Manage
 businesses" link to `/ui/businesses` is always present regardless. Starting
 an interview now also writes `pf_last_tenant` to `localStorage` (mirroring
 `/ui/businesses`'s Item 10 behavior), and every fetch error in this section
-is swallowed quietly — it must never block the start-interview form) are
+is swallowed quietly — it must never block the start-interview form), and
+Item 18 (UI: a new `GET /ui/operators` route + `web/templates/operators.html`,
+consuming Item 17's `/auth/operators*` endpoints — an operator table
+(username, created_at) sourced from `GET /auth/operators` and sorted
+client-side by username; an "Add Operator" form (username + password +
+confirm-password) with a strict client-side confirm-password match check
+that runs before any fetch; each row gets a "Reset Password" toggle (new +
+confirm, same match check) and a "Delete" toggle (retype-the-username
+confirm, strict `!==` guard before its fetch); the caller's own row never
+renders a Delete control at all — UX only, the server still enforces the
+409 self-delete ban regardless (D6); a successful self password change
+clears `pf_token`/`pf_username` from `localStorage` and redirects to
+`/ui/login`, since `set_password()` already revoked that operator's own
+token server-side (D9), with a pre-submit note warning it signs them out;
+both password fields are cleared after every add/reset submit, success or
+failure (G7); Item 19 folded into the same cycle: `base.html`'s nav gets a
+new `<a href="/ui/operators">Operators</a>` link alongside Businesses) are
 done; see that doc for the remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional

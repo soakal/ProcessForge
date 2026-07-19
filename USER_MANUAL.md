@@ -586,6 +586,42 @@ quiet instead of showing an error.
 
 ---
 
+## Managing operator accounts — website way
+
+Go to `http://127.0.0.1:8010/ui/operators`. This page lists every operator
+account (username and when it was created), and lets you add a new operator,
+reset any operator's password, or delete an operator — all from the same
+page. There is no "admin" tier: every operator can do all of this for every
+other operator, by design (Brian's team are the only people who log in). The
+one guardrail is that you can never delete your own account from this page —
+that button simply doesn't appear on your own row (the server would also
+refuse it even if it did).
+
+To add a new operator, fill in a username, a password (at least 8
+characters), and the same password again to confirm, then select "Add
+Operator". The two password fields must match exactly before anything is
+sent to the server — if they don't, you'll see an error right there and
+nothing is submitted.
+
+Each row in the operator table has a "Reset Password" button. Selecting it
+reveals a new-password and confirm-password box, which works the same way as
+the add-operator form above — type the new password twice, and it must match
+before the change is submitted. Resetting a password (yours or anyone
+else's) immediately signs that operator out everywhere, since it also
+revokes any device they were already logged in on. If you reset your **own**
+password this way, the page warns you first, then signs you out and sends
+you back to the login page right after a successful change — you'll need to
+log back in with the new password.
+
+Each row (except your own) also has a "Delete" button. Selecting it reveals
+a box asking you to type that operator's username again to confirm — like
+the destructive deletes elsewhere on the site, this is a safeguard against
+an accidental click, and the confirmation must match exactly before
+anything is deleted. Deleting an operator immediately signs them out
+everywhere, too.
+
+---
+
 ## Seeing who approved what (the audit log) — command-line way
 
 *Using the website? Go to `http://127.0.0.1:8010/ui/audit-log` — skip this section.*

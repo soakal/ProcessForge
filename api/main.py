@@ -433,6 +433,13 @@ def ui_businesses_delete(request: Request):
     return templates.TemplateResponse(request, "businesses_delete.html")
 
 
+@app.get("/ui/operators")
+def ui_operators(request: Request):
+    # No server-side auth check — requireAuth() in operators.html redirects
+    # to /ui/login client-side if there's no token, same as the rest of /ui.
+    return templates.TemplateResponse(request, "operators.html")
+
+
 @app.post("/sessions", response_model=SessionResponse)
 def create_session(
     body: SessionRequest,

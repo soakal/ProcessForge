@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+{% block title %}Operators — ProcessForge{% endblock %}
+{% block content %}
+<h1>Operators</h1>
+<p class="page-intro">This page lists every operator account and lets you add a new one, reset a password, or remove an operator.</p>
+<p class="next-step">Next step: review the operators below, or add a new operator using the form.</p>
+<p>Note: there is no admin role — any operator can add, reset the password for, or delete any other operator. The only guardrail is that an operator can never delete their own account from this page.</p>
+<div id="operators-error" class="error-message"></div>
+<div id="operators-results"></div>
+
+<h2>Add Operator</h2>
+<form id="add-operator-form">
+  <div>
+    <label for="new_username">Username</label>
+    <input type="text" id="new_username" name="new_username" required>
+  </div>
+  <div>
+    <label for="new_password">Password</label>
+    <input type="password" id="new_password" name="new_password" autocomplete="new-password" required>
+  </div>
+  <div>
+    <label for="new_password_confirm">Confirm Password</label>
+    <input type="password" id="new_password_confirm" name="new_password_confirm" autocomplete="new-password" required>
+  </div>
+  <div id="add-operator-error" class="error-message"></div>
+  <button type="submit">Add Operator</button>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  requireAuth();
+
+  // Used to suppress the Delete control on the caller's own row (UX only —
+  // the server still enforces the self-delete 409 regardless of what this
+  // page renders, D6 in docs/FEATURE-SPEC-dashboard-and-users.md) and to
+  // detect a self password change so we can sign the operator out after it
+  // (D9).
+  const currentUsername = getUsername();
+
+  const listErrorBox = document.getElementById("operators-error");
+  const resultsBox = document.getElementById("operators-results");
+
+  function renderOperators(operators) {
+    resultsBox.textContent = "";
+
+    // GET /auth/operators does not guarantee any ordering — sort by
+    // username client-side (Item 18).
+    const sorted = operators.slice().sort((a, b) => a.username.localeCompare(b.username));
+
+    if (sorted.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "No operators found.";
+      resultsBox.appendChild(message);
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Username", "Created", "Actions"].forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    sorted.forEach((operator) => {
+      const row = document.createElement("tr");
+      const isSelf = operator.username === currentUsername;
+
+      const usernameCell = document.createElement("td");
+      usernameCell.textContent = operator.username;
+      row.appendChild(usernameCell);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = operator.created_at;
+      row.appendChild(createdCell);
+
+      const actionsCell = document.createElement("td");
+
+      // Reset Password — every row, including the caller's own (D9 handles
+      // the self case below).
+      const resetButton = document.createElement("button");
+      resetButton.type = "button";
+      resetButton.textContent = "Reset Password";
+      actionsCell.appendChild(resetButton);
+
+      const resetError = document.createElement("div");
+      resetError.className = "error-message";
+      actionsCell.appendChild(resetError);
+
+      const resetBox = document.createElement("div");
+      resetBox.style.display = "none";
+
+      if (isSelf) {
+        // D9: warn before the operator changes their own password, since a
+        // successful self-change immediately signs them out.
+        const selfWarning = document.createElement("p");
+        selfWarning.className = "next-step";
+        selfWarning.textContent = "Note: changing your own password signs you out.";
+        resetBox.appendChild(selfWarning);
+      }
+
+      const newPasswordLabel = document.createElement("label");
+      newPasswordLabel.textContent = "New password";
+      resetBox.appendChild(newPasswordLabel);
+      const newPasswordInput = document.createElement("input");
+      newPasswordInput.type = "password";
+      newPasswordInput.autocomplete = "new-password";
+      resetBox.appendChild(newPasswordInput);
+
+      const confirmPasswordLabel = document.createElement("label");
+      confirmPasswordLabel.textContent = "Confirm new password";
+      resetBox.appendChild(confirmPasswordLabel);
+      const confirmPasswordInput = document.createElement("input");
+      confirmPasswordInput.type = "password";
+      confirmPasswordInput.autocomplete = "new-password";
+      resetBox.appendChild(confirmPasswordInput);
+
+      const resetSaveButton = document.createElement("button");
+      resetSaveButton.type = "button";
+      resetSaveButton.textContent = "Save";
+      resetBox.appendChild(resetSaveButton);
+
+      const resetCancelButton = document.createElement("button");
+      resetCancelButton.type = "button";
+      resetCancelButton.textContent = "Cancel";
+      resetBox.appendChild(resetCancelButton);
+
+      actionsCell.appendChild(resetBox);
+
+      let resetting = false;
+
+      resetButton.addEventListener("click", () => {
+        resetting = !resetting;
+        resetError.textContent = "";
+        newPasswordInput.value = "";
+        confirmPasswordInput.value = "";
+        resetBox.style.display = resetting ? "block" : "none";
+      });
+
+      resetCancelButton.addEventListener("click", () => {
+        resetting = false;
+        resetBox.style.display = "none";
+        resetError.textContent = "";
+        newPasswordInput.value = "";
+        confirmPasswordInput.value = "";
+      });
+
+      resetSaveButton.addEventListener("click", async () => {
+        resetError.textContent = "";
+
+        const newPassword = newPasswordInput.value;
+        const confirmPassword = confirmPasswordInput.value;
+
+        // Client-side guard: the two password fields must match exactly
+        // before we even attempt the request — the UI must not be laxer
+        // than the server-side check.
+        if (newPassword !== confirmPassword) {
+          resetError.textContent = "The passwords don't match.";
+          newPasswordInput.value = "";
+          confirmPasswordInput.value = "";
+          return;
+        }
+
+        let response;
+        try {
+          response = await fetchWithAuth("/auth/operators/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: operator.username, new_password: newPassword }),
+          });
+        } catch (err) {
+          resetError.textContent = "Could not reach the server. Please try again.";
+          newPasswordInput.value = "";
+          confirmPasswordInput.value = "";
+          return;
+        }
+
+        // Passwords must never be echoed or retained — both fields are
+        // cleared after every submit, success or failure.
+        newPasswordInput.value = "";
+        confirmPasswordInput.value = "";
+
+        if (response.status === 400) {
+          resetError.textContent = "Password must be at least 8 characters.";
+          return;
+        }
+
+        if (response.status === 404) {
+          resetError.textContent = "Operator not found.";
+          return;
+        }
+
+        if (!response.ok) {
+          resetError.textContent = "Something went wrong. Please try again.";
+          return;
+        }
+
+        // D9: a successful self password change already revoked this
+        // operator's own token server-side (set_password() revokes all of
+        // the target's tokens) — clear local auth state and send them to
+        // the login page rather than letting the very next request 401
+        // unexpectedly.
+        if (isSelf) {
+          localStorage.removeItem("pf_token");
+          localStorage.removeItem("pf_username");
+          window.location.href = "/ui/login";
+          return;
+        }
+
+        resetting = false;
+        resetBox.style.display = "none";
+      });
+
+      // Delete — suppressed entirely on the caller's own row. UX only: the
+      // server still enforces the self-delete 409 regardless (D6).
+      if (!isSelf) {
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        actionsCell.appendChild(deleteButton);
+
+        const deleteError = document.createElement("div");
+        deleteError.className = "error-message";
+        actionsCell.appendChild(deleteError);
+
+        const deleteBox = document.createElement("div");
+        deleteBox.style.display = "none";
+
+        const confirmLabel = document.createElement("label");
+        confirmLabel.textContent = "Type the username again to confirm";
+        deleteBox.appendChild(confirmLabel);
+
+        const confirmInput = document.createElement("input");
+        confirmInput.type = "text";
+        deleteBox.appendChild(confirmInput);
+
+        const deleteConfirmButton = document.createElement("button");
+        deleteConfirmButton.type = "button";
+        deleteConfirmButton.textContent = "Confirm Delete";
+        deleteBox.appendChild(deleteConfirmButton);
+
+        const deleteCancelButton = document.createElement("button");
+        deleteCancelButton.type = "button";
+        deleteCancelButton.textContent = "Cancel";
+        deleteBox.appendChild(deleteCancelButton);
+
+        actionsCell.appendChild(deleteBox);
+
+        let deleting = false;
+
+        deleteButton.addEventListener("click", () => {
+          deleting = !deleting;
+          deleteError.textContent = "";
+          confirmInput.value = "";
+          deleteBox.style.display = deleting ? "block" : "none";
+        });
+
+        deleteCancelButton.addEventListener("click", () => {
+          deleting = false;
+          deleteBox.style.display = "none";
+          deleteError.textContent = "";
+          confirmInput.value = "";
+        });
+
+        deleteConfirmButton.addEventListener("click", async () => {
+          deleteError.textContent = "";
+
+          // Client-side guard: the retyped username must exactly match this
+          // row's username before we even attempt the request — the UI must
+          // not be laxer than the server-side check.
+          if (confirmInput.value !== operator.username) {
+            deleteError.textContent = "The confirmation doesn't match the username.";
+            return;
+          }
+
+          let response;
+          try {
+            response = await fetchWithAuth("/auth/operators/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: operator.username }),
+            });
+          } catch (err) {
+            deleteError.textContent = "Could not reach the server. Please try again.";
+            return;
+          }
+
+          if (response.status === 409) {
+            deleteError.textContent = "You cannot delete your own account.";
+            return;
+          }
+
+          if (response.status === 404) {
+            deleteError.textContent = "Operator not found.";
+            return;
+          }
+
+          if (!response.ok) {
+            deleteError.textContent = "Something went wrong. Please try again.";
+            return;
+          }
+
+          row.remove();
+        });
+      }
+
+      row.appendChild(actionsCell);
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+
+    resultsBox.appendChild(table);
+  }
+
+  async function loadOperators() {
+    listErrorBox.textContent = "";
+    resultsBox.textContent = "";
+
+    let response;
+    try {
+      response = await fetchWithAuth("/auth/operators");
+    } catch (err) {
+      listErrorBox.textContent = "Could not reach the server. Please try again.";
+      return;
+    }
+
+    if (response.status === 401) {
+      listErrorBox.textContent = "You are not authorized to view operators.";
+      return;
+    }
+
+    if (!response.ok) {
+      listErrorBox.textContent = "Something went wrong. Please try again.";
+      return;
+    }
+
+    const operators = await response.json();
+    renderOperators(operators);
+  }
+
+  loadOperators();
+
+  document.getElementById("add-operator-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorBox = document.getElementById("add-operator-error");
+    errorBox.textContent = "";
+
+    const usernameInput = document.getElementById("new_username");
+    const passwordInput = document.getElementById("new_password");
+    const confirmInput = document.getElementById("new_password_confirm");
+
+    const username = usernameInput.value;
+    const password = passwordInput.value;
+    const confirmPassword = confirmInput.value;
+
+    // Client-side guard: the two password fields must match exactly before
+    // we even attempt the request.
+    if (password !== confirmPassword) {
+      errorBox.textContent = "The passwords don't match.";
+      passwordInput.value = "";
+      confirmInput.value = "";
+      return;
+    }
+
+    let response;
+    try {
+      response = await fetchWithAuth("/auth/operators", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+    } catch (err) {
+      errorBox.textContent = "Could not reach the server. Please try again.";
+      passwordInput.value = "";
+      confirmInput.value = "";
+      return;
+    }
+
+    // Passwords must never be echoed or retained — both fields are cleared
+    // after every submit, success or failure.
+    passwordInput.value = "";
+    confirmInput.value = "";
+
+    if (response.status === 400) {
+      errorBox.textContent = "Username must not be blank, and password must be at least 8 characters.";
+      return;
+    }
+
+    if (response.status === 409) {
+      errorBox.textContent = "That username already exists.";
+      return;
+    }
+
+    if (!response.ok) {
+      errorBox.textContent = "Something went wrong. Please try again.";
+      return;
+    }
+
+    usernameInput.value = "";
+    await loadOperators();
+  });
+</script>
+{% endblock %}
