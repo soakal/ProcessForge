@@ -570,6 +570,22 @@ right there in the Sessions list instead of sending you anywhere.
 
 ---
 
+## Your businesses at a glance — dashboard
+
+The dashboard (`http://127.0.0.1:8010/ui`) — the same page you use to start a
+new interview — now also shows a short "Your Businesses & Past Interviews"
+section below the start form. If you've loaded a tenant on the Businesses
+page before, or started an interview before, the dashboard remembers that
+tenant and automatically shows each of its businesses with a name and
+session count, each one linking straight to the full Businesses page. If no
+tenant is remembered yet, you'll just see a short note instead, plus a
+"Manage businesses" link that always takes you to the full Businesses page
+either way. This section is read-only and never gets in the way of starting
+a new interview — if it can't reach the server for any reason, it just stays
+quiet instead of showing an error.
+
+---
+
 ## Seeing who approved what (the audit log) — command-line way
 
 *Using the website? Go to `http://127.0.0.1:8010/ui/audit-log` — skip this section.*

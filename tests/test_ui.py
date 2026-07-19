@@ -51,6 +51,22 @@ def test_ui_dashboard_renders_form():
     assert "turning a business's manual process into an automation recommendation" in response.text
     assert 'class="next-step"' in response.text
     assert "fill in the business name and tenant below" in response.text
+    # Item 15: read-only "Your Businesses & Past Interviews" section below
+    # the start form — auto-fetches when a tenant is remembered, shows a
+    # plain hint when it isn't, and always links to /ui/businesses.
+    assert "Your Businesses &amp; Past Interviews" in response.text
+    assert "requireAuth" in response.text
+    assert "fetchWithAuth" in response.text
+    assert '"/businesses?tenant=" + encodeURIComponent(dashboardLastTenant)' in response.text
+    assert 'localStorage.getItem("pf_last_tenant")' in response.text
+    assert "No tenant remembered yet." in response.text
+    assert '<a href="/ui/businesses">Manage businesses</a>' in response.text
+    assert 'link.href = "/ui/businesses";' in response.text
+    assert "No businesses found for this tenant yet." in response.text
+    assert "innerHTML" not in response.text
+    # Starting an interview stores pf_last_tenant so this section (and
+    # /ui/businesses) can pick it up next visit.
+    assert 'localStorage.setItem("pf_last_tenant", tenant);' in response.text
 
 
 def test_ui_interview_renders_page():

@@ -17,6 +17,11 @@
   <div id="interview-error" class="error-message"></div>
   <button type="submit">Start Interview</button>
 </form>
+
+<h2>Your Businesses &amp; Past Interviews</h2>
+<p id="dashboard-businesses-hint"></p>
+<div id="dashboard-businesses-results"></div>
+<p><a href="/ui/businesses">Manage businesses</a></p>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -35,6 +40,11 @@
 
     const business_name = document.getElementById("business_name").value;
     const tenant = document.getElementById("tenant").value;
+
+    // Item 15: remember the tenant so the "Your Businesses & Past Interviews"
+    // section (and /ui/businesses) can prefill/auto-load it next time —
+    // tokens are cross-tenant, so the server can't infer this on its own.
+    localStorage.setItem("pf_last_tenant", tenant);
 
     let response;
     try {
@@ -62,5 +72,52 @@
     }));
     window.location.href = "/ui/interview";
   });
+
+  // Item 15: read-only "Your Businesses & Past Interviews" section. Purely
+  // a convenience — it must never block the start-interview form above, so
+  // every failure path here is swallowed quietly rather than surfaced.
+  const businessesHint = document.getElementById("dashboard-businesses-hint");
+  const businessesResults = document.getElementById("dashboard-businesses-results");
+
+  function renderDashboardBusinesses(businesses) {
+    businessesResults.textContent = "";
+
+    if (businesses.length === 0) {
+      const message = document.createElement("p");
+      message.textContent = "No businesses found for this tenant yet.";
+      businessesResults.appendChild(message);
+      return;
+    }
+
+    const list = document.createElement("ul");
+    businesses.forEach((business) => {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = "/ui/businesses";
+      link.textContent = business.name + " (" + business.session_count + " session" + (business.session_count === 1 ? "" : "s") + ")";
+      item.appendChild(link);
+      list.appendChild(item);
+    });
+    businessesResults.appendChild(list);
+  }
+
+  const dashboardLastTenant = localStorage.getItem("pf_last_tenant");
+  if (dashboardLastTenant) {
+    (async () => {
+      try {
+        const businessesResponse = await fetchWithAuth("/businesses?tenant=" + encodeURIComponent(dashboardLastTenant));
+        if (!businessesResponse.ok) {
+          return;
+        }
+        const businesses = await businessesResponse.json();
+        renderDashboardBusinesses(businesses);
+      } catch (err) {
+        // Could not reach the server — leave the section empty rather than
+        // interrupt the start-interview form above.
+      }
+    })();
+  } else {
+    businessesHint.textContent = "No tenant remembered yet. Start an interview below, or visit Manage businesses to look one up.";
+  }
 </script>
 {% endblock %}

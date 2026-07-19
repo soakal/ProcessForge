@@ -491,7 +491,17 @@ shape; `business_id` is optional there), and navigates to `/ui/interview`; no
 question turn found → a per-row error, no navigation. Closes the orphaned
 in-progress-interview gap left by a closed tab or lost connection. Locked in
 by an API-level test asserting an interrupted active interview's transcript
-ends with a question turn) are done; see that doc for the remaining items.
+ends with a question turn), and Item 15 (UI: the dashboard (`/ui`) gets a
+read-only "Your Businesses & Past Interviews" section below the start-interview
+form — if `localStorage.pf_last_tenant` is set, it auto-fetches `GET
+/businesses?tenant=` on load and renders each business's name and session
+count as a link to `/ui/businesses` via `createElement`/`textContent` only;
+with no tenant remembered it shows plain hint text instead; a "Manage
+businesses" link to `/ui/businesses` is always present regardless. Starting
+an interview now also writes `pf_last_tenant` to `localStorage` (mirroring
+`/ui/businesses`'s Item 10 behavior), and every fetch error in this section
+is swallowed quietly — it must never block the start-interview form) are
+done; see that doc for the remaining items.
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
