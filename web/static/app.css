@@ -196,4 +196,42 @@ th {
   textarea {
     min-height: 44px;
   }
+
+  /* Item 4 of docs/FEATURE-SPEC-mobile-friendly.md: card-stack the
+     businesses table so its per-row interactive controls (Sessions toggle,
+     Rename, Resume, delete-confirm) get full-width space instead of a
+     squeezed/panning cell. table.stacked is set via JS alongside each
+     td's dataset.label. */
+  table.stacked,
+  table.stacked tbody,
+  table.stacked tr,
+  table.stacked td {
+    display: block;
+    width: 100%;
+  }
+
+  table.stacked thead {
+    display: none;
+  }
+
+  table.stacked td {
+    border-bottom: none;
+  }
+
+  table.stacked tr {
+    border-bottom: 1px solid #ddd;
+    padding: 0.5rem 0;
+  }
+
+  table.stacked td::before {
+    content: attr(data-label);
+    display: block;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #555;
+  }
+
+  table.stacked td input[type="text"] {
+    width: 100%;
+  }
 }

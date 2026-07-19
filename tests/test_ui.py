@@ -72,6 +72,21 @@ def test_ui_static_css_audit_log_horizontal_scroll():
     assert "overflow-x: auto" in css
 
 
+def test_ui_static_css_businesses_stacked_table():
+    # Item 4 of docs/FEATURE-SPEC-mobile-friendly.md: businesses table gets
+    # card-stacked rows at <=640px via table.stacked + td::before labels,
+    # reusing the repo's single (max-width: 640px) breakpoint.
+    client = _client()
+    response = client.get("/ui/static/app.css")
+    assert response.status_code == 200
+    css = response.text
+    media_match = re.search(r"@media\s*\(max-width:\s*640px\)\s*\{(.*)\}\s*$", css, re.DOTALL)
+    assert media_match is not None
+    mobile_block = media_match.group(1)
+    assert "table.stacked" in mobile_block
+    assert "content: attr(data-label)" in mobile_block
+
+
 def test_ui_static_js_served():
     client = _client()
     response = client.get("/ui/static/app.js")
@@ -326,6 +341,15 @@ def test_ui_businesses_renders_form():
     assert "This interview has no question to resume from." in response.text
     assert "pf_interview_state" in response.text
     assert 'window.location.href = "/ui/interview";' in response.text
+    # Item 4 of docs/FEATURE-SPEC-mobile-friendly.md: card-stacking the
+    # businesses table for <=640px viewports — dataset.label on each td plus
+    # table.className = "stacked", attribute-only (innerHTML stays absent,
+    # asserted above).
+    assert 'table.className = "stacked"' in response.text
+    assert 'nameCell.dataset.label = "Name"' in response.text
+    assert 'idCell.dataset.label = "ID"' in response.text
+    assert 'countCell.dataset.label = "Sessions"' in response.text
+    assert 'actionsCell.dataset.label = "Actions"' in response.text
 
 
 def test_ui_businesses_delete_renders_form():

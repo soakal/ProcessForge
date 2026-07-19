@@ -221,6 +221,7 @@
     }
 
     const table = document.createElement("table");
+    table.className = "stacked";
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     ["Name", "ID", "Sessions", "Actions"].forEach((label) => {
@@ -236,18 +237,22 @@
       const row = document.createElement("tr");
 
       const nameCell = document.createElement("td");
+      nameCell.dataset.label = "Name";
       nameCell.textContent = business.name;
       row.appendChild(nameCell);
 
       const idCell = document.createElement("td");
+      idCell.dataset.label = "ID";
       idCell.textContent = business.id.slice(0, 8);
       row.appendChild(idCell);
 
       const countCell = document.createElement("td");
+      countCell.dataset.label = "Sessions";
       countCell.textContent = String(business.session_count);
       row.appendChild(countCell);
 
       const actionsCell = document.createElement("td");
+      actionsCell.dataset.label = "Actions";
       const toggleButton = document.createElement("button");
       toggleButton.type = "button";
       toggleButton.textContent = "Sessions";
