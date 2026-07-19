@@ -18,7 +18,8 @@ A minimal API layer also now exists beyond §6's original scope: `api/main.py`
 `POST /sessions/{id}/delete`,
 `POST /interviews`, `POST /interviews/{id}/answer`, `GET
 /interviews/{id}/transcript`, `GET /businesses`, `GET
-/businesses/{id}/sessions`, `POST /businesses/{id}/edit`, `GET
+/businesses/{id}/sessions`, `POST /businesses/{id}/interviews`,
+`POST /businesses/{id}/edit`, `GET
 /auth/operators`, `POST /auth/operators`, `POST /auth/operators/password`,
 `POST /auth/operators/delete`), plus `/ui/businesses` and `/ui/operators`
 among the `/ui` routes.
@@ -545,6 +546,32 @@ both password fields are cleared after every add/reset submit, success or
 failure (G7); Item 19 folded into the same cycle: `base.html`'s nav gets a
 new `<a href="/ui/operators">Operators</a>` link alongside Businesses) are
 done; see that doc for the remaining items.
+
+**`docs/FEATURE-SPEC-existing-business-interviews.md`'s three code items are
+complete; this closes the doc's Item 4 (docs closeout).** Item 1 (UI:
+`/ui/businesses` now auto-loads the remembered tenant's business list on page
+open — the existing submit-handler fetch/render logic was factored into a
+shared `loadBusinesses(tenant)` function called from both the submit listener
+and, when `pf_last_tenant` is set, directly on page load; unlike the
+dashboard's Item 15 auto-fetch, errors here surface in the page's own
+`#businesses-error` box rather than swallowing quietly, since the list is
+this page's whole purpose), Item 2 (API: `POST
+/businesses/{business_id}/interviews?tenant=<t>` starts a brand-new session
+under an *existing* business — same `{business_id, session_id, question}`
+response shape as `POST /interviews`, same tenant-scoped identical-404
+discipline, no request body since the business's name and the fixed opener
+are already known; `POST /interviews` itself is untouched, still the only way
+to create a brand-new business), and Item 3 (UI: each business row on
+`/ui/businesses` gets a "New Interview" button that calls the new endpoint
+and, on success, writes the same `pf_interview_state` shape `dashboard.html`
+writes before navigating to `/ui/interview` — `interview.html` needed zero
+changes) are done. Multiple sessions per business needed no repo or contract
+changes — that was already fully supported; only the missing creation path
+was added. Reopening or appending to a *completed* session remains rejected
+(`answer_interview`'s existing 409 gate, deliberately unchanged) — "ask about
+another process" is always a new, clean-slate session, never an edit to an
+old one. See that doc for the full design rationale (Part B) and explicitly
+out-of-scope items (Part E).
 
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):

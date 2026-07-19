@@ -531,12 +531,26 @@ see, not even a hint that it exists.
 
 ## Seeing a tenant's businesses — website way
 
-Go to `http://127.0.0.1:8010/ui/businesses`. Type in a tenant and select "Load" to
-see every business recorded for that tenant, with its name and how many interview
-sessions it has. The tenant you last loaded is remembered for next time, so you
-don't have to retype it on every visit. This page replaces the old "Delete
-Business" shortcut in the site's navigation bar — the delete page described below
-still exists and is still reachable, just not from the nav bar directly.
+Go to `http://127.0.0.1:8010/ui/businesses`. If you've loaded a tenant here
+before, that tenant's businesses now load automatically the moment the page
+opens — you don't need to click anything first. You can still type in a
+different tenant and select "Load" any time to switch to it. Either way, you'll
+see every business recorded for that tenant, with its name and how many
+interview sessions it has. The tenant you last loaded is remembered for next
+time, so you don't have to retype it on every visit. This page replaces the old
+"Delete Business" shortcut in the site's navigation bar — the delete page
+described below still exists and is still reachable, just not from the nav bar
+directly.
+
+Each business row also has a "New Interview" button. Select it to start a
+brand new conversation about a different process at that same business —
+useful when you're already working with a client and want to talk through a
+second task without accidentally creating a duplicate entry for them. It
+takes you straight into the same conversation page you'd see for a first-time
+interview, asking the same opening question. None of the business's other
+conversations (or anything that came out of them) are touched by this — it's
+always a fresh conversation, never a way to reopen or add to one that's
+already finished.
 
 Each business row also has a "Rename" button. Select it to reveal a text box
 already filled in with the business's current name — edit it and select "Save"
