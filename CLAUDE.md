@@ -573,6 +573,43 @@ another process" is always a new, clean-slate session, never an edit to an
 old one. See that doc for the full design rationale (Part B) and explicitly
 out-of-scope items (Part E).
 
+**`docs/FEATURE-SPEC-public-lead-intake.md` is fully implemented (Items 1-6); this
+closes the doc's Item 6 (docs closeout).** A new `/public` route family in
+`api/main.py` is the app's first unauthenticated write-capable surface: `GET
+/public/intake` (the self-contained page, `web/templates/public_intake.html` — no
+`base.html`, no `app.js`/`app.css`, `noindex` meta), `POST /public/intake` (starts a
+lead), and `POST /public/intake/{session_id}/answer` (drives the ladder and
+completes it). Every submission is hardcoded server-side to one reserved tenant,
+`_PUBLIC_TENANT = "public-leads"` — no `/public` request ever carries or affects a
+tenant, so the existing per-query tenant isolation (`kb/repository.py`) contains the
+public pool exactly like any other tenant boundary. **The question-asking path is
+structurally zero-LLM**, not just configured that way: `_next_question_deterministic`
+is called directly (never `interviewer.next_question`), and completion runs through
+`_NoLLMCtx`, a `_Ctx` subclass whose `complete()` unconditionally raises, forcing
+`interviewer.run`'s existing LLM-first-then-fallback logic to take the deterministic
+path by construction — proven in `tests/test_public_intake_hardening.py` by rigging
+`requests.post` to raise mid-flow. Contact info is collected first (business name +
+contact on the start form), stored twice (`Business.meta` and as the transcript's
+seeded first turn pair, excluded from the extraction transcript so it never pollutes
+Task fields) so even an abandoned partial interview is a usable lead. Anti-abuse is a
+proportionate v1 stack: the zero-LLM guarantee itself, a dedicated rate limiter
+(`_check_public_rate_limit`, disjoint bucket keyspace from the operator
+`_check_rate_limit`, `PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE`, default 10), a
+DB-derived global daily cap counted from `public-leads` businesses' `meta.submitted_at`
+(`PROCESSFORGE_PUBLIC_MAX_LEADS_PER_DAY`, default 20, restart-proof), Pydantic
+`max_length` caps on every field, and a honeypot (`website`) that returns a
+shape-identical fake success without touching the DB. Completion responses never
+carry more than `{"status": "complete", "message": ...}` — no ids, no tenant, no ROI,
+nothing an operator-only endpoint would return (G4). Review needs nothing new:
+`dashboard.html` gained a static "Review public leads" link to
+`/ui/businesses?tenant=public-leads`, and `businesses.html` now honors a `?tenant=`
+URL param (prefill + auto-load) that deliberately does NOT persist to
+`pf_last_tenant`, so checking leads never hijacks an operator's remembered working
+tenant. See that doc for the full design rationale (Part B) and explicitly
+out-of-scope items (Part E) — notably: the actual Tailscale Funnel exposure itself,
+real CAPTCHA, `X-Forwarded-For`-based limiting, and new-lead notifications are all
+deferred, not built here.
+
 Remaining (none of these are council loops, all are genuinely optional
 polish, not blockers to using the product):
 - Real multi-tenant client self-serve accounts, if that business model is
@@ -621,6 +658,23 @@ a strict improvement, not a tradeoff). Confirmed via a real `POST
 genuinely reflected the submitted answer's specifics, not the deterministic
 fallback script.
 
+**When Tailscale Funnel exposure happens (a separate, later, Brian-only step — not
+done as part of this build, see `docs/FEATURE-SPEC-public-lead-intake.md` Part E):
+path-mount only the `/public` prefix, never the bare host root.** `GET
+/public/intake`, `POST /public/intake`, and `POST /public/intake/{session_id}/answer`
+are the only routes designed to be internet-facing (structurally zero-LLM, their own
+rate limiter, hardcoded `public-leads` tenant — see Status); every other route,
+including all of `/ui`, `/auth`, and the operator API, must never get a public Funnel
+URL. Before flipping Funnel on, also re-check the per-IP shared-bucket caveat: Funnel
+traffic is proxied through `tailscaled`, so `request.client.host` inside
+`_check_public_rate_limit` may end up identical for every internet visitor, collapsing
+the public per-minute limit (`PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE`, default 10)
+into one shared bucket for all public traffic rather than a per-visitor one —
+fail-closed on total throughput, but one abuser can exhaust it for everyone until the
+window resets. Confirm the actual behavior live at exposure time and decide then
+whether trusting `X-Forwarded-For` from a known proxy chain is warranted (spec A6,
+Part F#2) — this is not resolved in code today.
+
 ## Build engine
 
 Built via an internal autonomous council-loop tool (Arbiter/Engineer/Realist roles), pointed at this repo as its target. ProcessForge does **not** reimplement council-iteration mechanics itself — no standalone `run-loop.ps1` batch engine here.
@@ -646,7 +700,7 @@ Runs `pip-audit` against `requirements.lock.txt` then `pytest -q`. A failing pip
 
 ## Env vars
 
-See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY`/`PROCESSFORGE_LLM_PROVIDER` for `llm/client.py`, `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` and `PROCESSFORGE_MAX_INTERVIEW_ANSWERS` for the API, `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging. No env var for API auth anymore — operator accounts are created via `python -m auth.users create <username>` (see `auth/users.py`), not configured in `.env`.
+See `.env.example`. `PROCESSFORGE_DB_PATH` for the KB SQLite file, `PROCESSFORGE_MODEL_{EXTRACT,REASON,ARBITER}` + `PROCESSFORGE_LLM_API_KEY`/`PROCESSFORGE_LLM_PROVIDER` for `llm/client.py`, `PROCESSFORGE_RATE_LIMIT_PER_MINUTE` and `PROCESSFORGE_MAX_INTERVIEW_ANSWERS` for the API, `PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE` (default 10) and `PROCESSFORGE_PUBLIC_MAX_LEADS_PER_DAY` (default 20) for the `/public` lead-intake surface specifically (own bucket keyspace, disjoint from the operator rate limiter — see Status), `BUILD_LOG_URL`/`BUILD_LOG_TOKEN` for build-session logging. No env var for API auth anymore — operator accounts are created via `python -m auth.users create <username>` (see `auth/users.py`), not configured in `.env`.
 
 ## Keeping the user manual current
 

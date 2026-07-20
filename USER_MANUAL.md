@@ -612,6 +612,51 @@ quiet instead of showing an error.
 
 ---
 
+## Sending a public link to a prospective client
+
+Besides logging in yourself and starting a conversation, you can also hand a plain
+web link to someone who isn't a client yet — a prospect who wants to describe a
+manual process they're hoping to get automated, before you've set them up as a
+client in ProcessForge at all.
+
+**The link:** `/public/intake` on whichever server you're using (for example,
+`http://100.102.226.75:8010/public/intake` on the always-on server — ask whoever
+manages the server for the right address if you're sending this to someone outside
+your own network). Anyone with the link can open it and fill it in — **no login
+required, and it never costs anything to run**: because it never calls any AI
+service, no matter how many people fill it out or how many times, it can't run up a
+bill.
+
+**What they see:** a short page that first asks their name and the best way to reach
+them, then a fixed set of about 7 questions about the process they want automated —
+how long it takes and how often, the outcome they want, where the input files come
+from, any filter rules that matter, and the output format they want. It always asks
+the exact same questions, every time, for every submitter — there's no AI deciding
+what to ask, which is also why it can never generate an AI bill. When they finish,
+they just see a short thank-you message — they never see the estimate or the
+recommendation ProcessForge worked out from their answers; that part is for you to
+review, not them.
+
+**Where the answers go:** every submission shows up just like a normal interview —
+a business, a conversation transcript (their contact info is the very first thing in
+it), an estimate, and a draft recommendation — but filed under one reserved tenant
+name so it never mixes with your real clients' data: `public-leads`. To see what's
+come in, log in and go to the dashboard (`http://127.0.0.1:8010/ui`, or your
+always-on server's `/ui`) and select **"Review public leads"** — that takes you
+straight to the Businesses page already loaded with the `public-leads` tenant, where
+you can read the transcript, check the estimate, and turn it into a real
+recommendation the same way you would for anyone else. Opening a lead this way
+doesn't change which tenant the Businesses page remembers for you next time. If it
+looks promising, start a proper interview under the client's own tenant name once
+you're ready to onboard them for real — a public lead never automatically becomes a
+client.
+
+**Important: never use `public-leads` as a tenant name for a real client.** It's
+reserved for this public-link feature only — using it for an actual client would mix
+their data in with anonymous prospect submissions.
+
+---
+
 ## Managing operator accounts — website way
 
 Go to `http://127.0.0.1:8010/ui/operators`. This page lists every operator
