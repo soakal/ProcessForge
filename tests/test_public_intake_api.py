@@ -500,22 +500,31 @@ def test_start_public_intake_rate_limit_enforced_at_configured_threshold(monkeyp
 def test_start_public_intake_rate_limit_disjoint_from_operator_endpoint(monkeypatch, tmp_path):
     """G5, proven end-to-end at the wired route: exhausting the public
     limiter (cap 1) for a host must not affect the separate operator limiter
-    (also cap 1) for the same host — the very next operator-endpoint request
-    still gets its own full quota and fails on auth (401), not on rate limit
-    (429), which is what it would get if the buckets were shared."""
+    (also cap 1) for the same host — the next operator-endpoint request still
+    gets its own full quota and fails on auth (401), not on rate limit (429),
+    which is what it would get if the buckets were shared.
+
+    Mirrors test_start_public_intake_rate_limit_enforced_at_configured_threshold's
+    convention: clear the bucket right before the burst and assert 429 is
+    present rather than pinning it to an exact Nth request, so the test isn't
+    dependent on which second within the minute window it happens to run in."""
     _set_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "1")
     monkeypatch.setenv("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", "1")
     client = _client()
 
-    ok = client.post(
-        "/public/intake", json={"business_name": "Lead One", "contact": "a@example.com"}
-    )
-    assert ok.status_code == 200
-    tripped = client.post(
-        "/public/intake", json={"business_name": "Lead Two", "contact": "b@example.com"}
-    )
-    assert tripped.status_code == 429
+    from api.main import _public_rate_limit_buckets
+
+    _public_rate_limit_buckets.clear()
+
+    statuses = [
+        client.post(
+            "/public/intake",
+            json={"business_name": f"Lead {i}", "contact": f"lead{i}@example.com"},
+        ).status_code
+        for i in range(5)
+    ]
+    assert 429 in statuses
 
     operator_response = client.post(
         "/sessions",
