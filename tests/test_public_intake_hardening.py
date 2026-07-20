@@ -292,6 +292,12 @@ def test_public_start_flood_stops_row_growth_at_the_rate_limit(monkeypatch, tmp_
     limiter, not merely the daily cap, is what stops a burst flood."""
     db_path = _set_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "3")
+    # Pin api/main.py's window clock (window = int(time.time() // 60)) to a
+    # single fixed instant so the whole burst below lands in one window
+    # regardless of which real wall-clock second the test happens to run on
+    # — without this, a burst straddling a real minute boundary can land in
+    # two windows and produce a nondeterministic status/row count.
+    monkeypatch.setattr("api.main.time.time", lambda: 1_700_000_000.0)
     client = _client()
 
     responses = [
@@ -345,6 +351,10 @@ def test_public_answer_flood_gets_rate_limited_without_advancing_any_session(mon
     no turn is written by a 429'd attempt."""
     db_path = _set_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "1")
+    # Same fixed-window pin as test_public_start_flood_stops_row_growth_at_the_rate_limit
+    # above, for the same reason: keep the start call and the whole answer
+    # flood in a single deterministic rate-limit window.
+    monkeypatch.setattr("api.main.time.time", lambda: 1_700_000_000.0)
     client = _client()
 
     # The single start call consumes the window's only slot.

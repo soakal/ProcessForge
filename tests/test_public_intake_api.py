@@ -65,6 +65,12 @@ def test_public_rate_limit_disjoint_from_operator_rate_limit(monkeypatch):
     monkeypatch.setenv("PROCESSFORGE_RATE_LIMIT_PER_MINUTE", "100")
     public_buckets.clear()
     operator_buckets.clear()
+    # Pin the window clock: this test asserts the exact 3rd call trips 429
+    # (unlike the burst-list-style tests elsewhere in this file that fire
+    # more calls than could ever succeed across two windows), so a real
+    # minute-boundary straddle between the 2nd and 3rd call would give the
+    # 3rd call a fresh window's slot instead of the expected 429.
+    monkeypatch.setattr("api.main.time.time", lambda: 1_700_000_000.0)
 
     host = "9.9.9.9"
     check_public_rate_limit(host)
@@ -98,6 +104,12 @@ def test_operator_rate_limit_does_not_consume_public_bucket(monkeypatch):
     monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "100")
     public_buckets.clear()
     operator_buckets.clear()
+    # Pin the window clock: this test asserts the exact 3rd call trips 429
+    # (unlike the burst-list-style tests elsewhere in this file that fire
+    # more calls than could ever succeed across two windows), so a real
+    # minute-boundary straddle between the 2nd and 3rd call would give the
+    # 3rd call a fresh window's slot instead of the expected 429.
+    monkeypatch.setattr("api.main.time.time", lambda: 1_700_000_000.0)
 
     host = "8.8.4.4"
     check_rate_limit(host)
@@ -846,6 +858,14 @@ def test_answer_public_intake_rate_limit_is_first_statement(monkeypatch, tmp_pat
     session lookup, fired first)."""
     _set_env(monkeypatch, tmp_path)
     monkeypatch.setenv("PROCESSFORGE_PUBLIC_RATE_LIMIT_PER_MINUTE", "1")
+    # Pin api/main.py's window clock (window = int(time.time() // 60)) to a
+    # single fixed instant so the start call and the answer call below land
+    # in the same rate-limit window regardless of which real wall-clock
+    # second the test happens to run on — without this, the two calls can
+    # straddle a real minute boundary and the answer call gets a fresh
+    # window's slot instead of the expected 429 (mirrors the same pin in
+    # tests/test_public_intake_hardening.py).
+    monkeypatch.setattr("api.main.time.time", lambda: 1_700_000_000.0)
     client = _client()
     started = _start_public(client)
 
