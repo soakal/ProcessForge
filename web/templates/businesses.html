@@ -26,10 +26,22 @@
   // whatever tenant is loaded next — tokens are cross-tenant, so the server
   // can't infer this, and re-typing it on every visit would be annoying.
   const lastTenant = localStorage.getItem("pf_last_tenant");
-  if (lastTenant) {
+
+  // Item 5 of docs/FEATURE-SPEC-public-lead-intake.md: a `?tenant=` URL
+  // param (e.g. the dashboard's "Review public leads" link) prefills and
+  // auto-loads that tenant, taking precedence over the remembered
+  // pf_last_tenant — and deliberately does NOT persist to pf_last_tenant
+  // (D11), so checking leads never hijacks the remembered working tenant.
+  const tenantParam = new URLSearchParams(window.location.search).get("tenant");
+
+  if (tenantParam) {
+    tenantInput.value = tenantParam;
+  } else if (lastTenant) {
     tenantInput.value = lastTenant;
   }
-  if (lastTenant) {
+  if (tenantParam) {
+    loadBusinesses(tenantParam);
+  } else if (lastTenant) {
     loadBusinesses(lastTenant);
   }
 
@@ -476,8 +488,6 @@
     errorBox.textContent = "";
     resultsBox.textContent = "";
 
-    localStorage.setItem("pf_last_tenant", tenant);
-
     let response;
     try {
       response = await fetchWithAuth("/businesses?tenant=" + encodeURIComponent(tenant));
@@ -502,6 +512,12 @@
 
   document.getElementById("businesses-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    // Item 5 of docs/FEATURE-SPEC-public-lead-intake.md: manual Load still
+    // persists pf_last_tenant (moved here from loadBusinesses, D11) so the
+    // URL-param auto-load path above never writes it.
+    localStorage.setItem("pf_last_tenant", tenantInput.value);
+
     loadBusinesses(tenantInput.value);
   });
 </script>

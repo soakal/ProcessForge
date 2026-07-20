@@ -139,6 +139,9 @@ def test_ui_dashboard_renders_form():
     assert 'localStorage.getItem("pf_last_tenant")' in response.text
     assert "No tenant remembered yet." in response.text
     assert '<a href="/ui/businesses">Manage businesses</a>' in response.text
+    # Item 5 of docs/FEATURE-SPEC-public-lead-intake.md: a static link to
+    # the businesses page pre-filtered to the reserved public-leads tenant.
+    assert '<a href="/ui/businesses?tenant=public-leads">Review public leads</a>' in response.text
     assert 'link.href = "/ui/businesses";' in response.text
     assert "No businesses found for this tenant yet." in response.text
     assert "innerHTML" not in response.text
@@ -321,6 +324,20 @@ def test_ui_businesses_renders_form():
     assert "fetchWithAuth" in response.text
     assert "pf_last_tenant" in response.text
     assert "innerHTML" not in response.text
+    # Item 5 of docs/FEATURE-SPEC-public-lead-intake.md: a `?tenant=` URL
+    # param (e.g. the dashboard's "Review public leads" link) prefills and
+    # auto-loads that tenant, taking precedence over the remembered
+    # pf_last_tenant.
+    assert 'new URLSearchParams(window.location.search).get("tenant")' in response.text
+    assert "if (tenantParam) {\n    loadBusinesses(tenantParam);\n  } else if (lastTenant) {\n    loadBusinesses(lastTenant);\n  }" in response.text
+    # D11: the URL-param path must NOT persist pf_last_tenant — the
+    # localStorage.setItem call now lives only in the submit handler (moved
+    # out of loadBusinesses), so it appears exactly once in the page, after
+    # the submit listener is registered.
+    assert response.text.count('localStorage.setItem("pf_last_tenant"') == 1
+    submit_listener_index = response.text.index('businesses-form").addEventListener("submit"')
+    set_item_index = response.text.index('localStorage.setItem("pf_last_tenant"')
+    assert set_item_index > submit_listener_index
     # Nav now points to the new Businesses page instead of the old
     # Delete-Business shortcut (the delete route/page itself stays alive,
     # reached via per-row deep-links in a later cycle).
