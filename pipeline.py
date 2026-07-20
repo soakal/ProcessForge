@@ -80,7 +80,7 @@ def _finish_pipeline(business, session, tasks, repo, sink, ctx) -> SessionResult
     for opportunity in opportunities:
         sink.save(opportunity, ctx)
 
-    recommendations = architect.run(opportunities, ctx)
+    recommendations = architect.run((opportunities, tasks), ctx)
     for recommendation in recommendations:
         sink.save(recommendation, ctx)
 
